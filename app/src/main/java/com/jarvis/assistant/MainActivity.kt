@@ -42,7 +42,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val client = OkHttpClient()
 
     // Replace with your Groq API Key
-    private val groqApiKey = "YOUR_GROQ_API_KEY"
+    private val groqApiKey = "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"
+    
+    
 
     private var recognizedText by mutableStateOf("Tap the button and speak...")
     private var assistantResponse by mutableStateOf("")
