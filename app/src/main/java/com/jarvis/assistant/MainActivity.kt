@@ -233,8 +233,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            textToSpeech?.language = Locale.US
-            textToSpeech?.setSpeechRate(0.85f)
+            textToSpeech?.language = Locale.UK
+            textToSpeech?.setSpeechRate(0.92f)
+            textToSpeech?.setPitch(0.78f)
+
+            textToSpeech?.voices?.find { voice ->
+                voice.locale.language == "en" &&
+                (voice.name.lowercase().contains("male") || voice.name.lowercase().contains("#male"))
+            }?.let { maleVoice ->
+                textToSpeech?.voice = maleVoice
+            }
         }
     }
 
