@@ -41,10 +41,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var textToSpeech: TextToSpeech? = null
     private val client = OkHttpClient()
 
-    // Replace with your Groq API Key
     private val groqApiKey = "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"
-    
-    
 
     private var recognizedText by mutableStateOf("Tap the button and speak...")
     private var assistantResponse by mutableStateOf("")
@@ -92,29 +89,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             Text(
                                 text = recognizedText,
                                 fontSize = 18.sp,
-                                color = Color.White,
-                                modifier = Modifier.padding(16.dp)
+                                color = Color.White.copy(alpha = 0.8f)
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(24.dp))
                             Text(
                                 text = assistantResponse,
                                 fontSize = 16.sp,
-                                color = Color(0xFF94A3B8),
-                                modifier = Modifier.padding(16.dp)
+                                color = Color(0xFF94A3B8)
                             )
                         }
 
                         Button(
-                            onClick = { checkAndStartListening() },
+                            onClick = { checkPermissionAndListen() },
                             modifier = Modifier
-                                .size(80.dp)
-                                .padding(bottom = 16.dp),
+                                .padding(bottom = 32.dp)
+                                .size(80.dp),
                             shape = CircleShape,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isListening) Color(0xFFEF4444) else Color(0xFF0284C7)
+                                containerColor = if (isListening) Color.Red else Color(0xFF0284C7)
                             )
                         ) {
-                            Text(if (isListening) "●" else "MIC", color = Color.White)
+                            Text(if (isListening) "STOP" else "MIC")
                         }
                     }
                 }
@@ -122,8 +117,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun checkAndStartListening() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+    private fun checkPermissionAndListen() {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
             startListening()
         } else {
             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -131,33 +130,46 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startListening() {
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
         }
 
-        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { isListening = true }
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() { isListening = false }
-            override fun onError(error: Int) {
-                isListening = false
-                recognizedText = "Error listening: $error"
-            }
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    val query = matches[0]
-                    recognizedText = query
-                    handleAssistantQuery(query)
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    isListening = true
+                    recognizedText = "Listening..."
                 }
-            }
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
+
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    isListening = false
+                }
+
+                override fun onError(error: Int) {
+                    isListening = false
+                    recognizedText = "Error listening: $error"
+                }
+
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        val query = matches[0]
+                        recognizedText = query
+                        handleAssistantQuery(query)
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
 
         speechRecognizer?.startListening(intent)
     }
@@ -184,7 +196,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return try {
             val mediaType = "application/json; charset=utf-8".toMediaType()
             val payload = JSONObject().apply {
-                put("model", "llama3-8b-8192")
+                put("model", "llama-3.1-8b-instant")
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
@@ -222,6 +234,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             textToSpeech?.language = Locale.US
+            textToSpeech?.setSpeechRate(0.85f)
         }
     }
 
