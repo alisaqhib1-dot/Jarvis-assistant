@@ -3,7 +3,9 @@ package com.jarvis.assistant
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -50,10 +52,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var assistantResponse by mutableStateOf("")
     private var isListening by mutableStateOf(false)
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+    // Request permissions for Audio, Phone Calling, and Reading Contacts
+    private val permissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
+        if (audioGranted) {
             initSpeechRecognizer()
         }
     }
@@ -63,12 +67,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         tts = TextToSpeech(this, this)
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
+        val requiredPermissions = arrayOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_CONTACTS
+        )
+
+        val missing = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isEmpty()) {
             initSpeechRecognizer()
         } else {
-            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            permissionsLauncher.launch(requiredPermissions)
         }
 
         setContent {
@@ -138,30 +150,109 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return false
     }
 
+    private fun getPhoneNumberForName(contactName: String): Pair<String, String>? {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) 
+            != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+
+        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        )
+        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
+        val selectionArgs = arrayOf("%$contactName%")
+
+        val cursor = contentResolver.query(uri, projection, selection, selectionArgs, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                if (nameIndex != -1 && numberIndex != -1) {
+                    val foundName = it.getString(nameIndex)
+                    val foundNumber = it.getString(numberIndex)
+                    return Pair(foundName, foundNumber)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun makePhoneCall(number: String) {
+        val callIntent = Intent(Intent.ACTION_CALL).apply {
+            data = Uri.parse("tel:$number")
+        }
+        startActivity(callIntent)
+    }
+
     private fun processCommand(query: String) {
         val cleanQuery = query.lowercase().trim()
 
-        if (cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ")) {
-            val appTarget = cleanQuery
-                .removePrefix("open ")
-                .removePrefix("launch ")
-                .trim()
+        when {
+            // 1. App Launching Commands
+            cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
+                val appTarget = cleanQuery
+                    .removePrefix("open ")
+                    .removePrefix("launch ")
+                    .trim()
 
-            val success = openAppByName(appTarget)
-            val reply = if (success) {
-                "Opening $appTarget, sir."
-            } else {
-                "I could not find $appTarget on your device, sir."
+                val success = openAppByName(appTarget)
+                val reply = if (success) {
+                    "Opening $appTarget, sir."
+                } else {
+                    "I could not find $appTarget on your device, sir."
+                }
+                assistantResponse = reply
+                speak(reply)
             }
-            assistantResponse = reply
-            speak(reply)
-        } else {
-            assistantResponse = "Thinking..."
-            CoroutineScope(Dispatchers.IO).launch {
-                val answer = callGroqApi(query)
-                withContext(Dispatchers.Main) {
-                    assistantResponse = answer
-                    speak(answer)
+
+            // 2. Call / Dial Commands
+            cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
+                val contactTarget = cleanQuery
+                    .removePrefix("call ")
+                    .removePrefix("dial ")
+                    .trim()
+
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                    val reply = "Permission to place calls has not been granted, sir."
+                    assistantResponse = reply
+                    speak(reply)
+                    return
+                }
+
+                // If user dictates digits directly (e.g. "call 9876543210")
+                if (contactTarget.replace("[\\s-]".toRegex(), "").all { it.isDigit() }) {
+                    val reply = "Calling $contactTarget now, sir."
+                    assistantResponse = reply
+                    speak(reply)
+                    makePhoneCall(contactTarget)
+                } else {
+                    // Look up contact name in the phonebook
+                    val contactMatch = getPhoneNumberForName(contactTarget)
+                    if (contactMatch != null) {
+                        val (name, number) = contactMatch
+                        val reply = "Calling $name now, sir."
+                        assistantResponse = reply
+                        speak(reply)
+                        makePhoneCall(number)
+                    } else {
+                        val reply = "I could not find $contactTarget in your contacts, sir."
+                        assistantResponse = reply
+                        speak(reply)
+                    }
+                }
+            }
+
+            // 3. Fallback to Groq AI
+            else -> {
+                assistantResponse = "Thinking..."
+                CoroutineScope(Dispatchers.IO).launch {
+                    val answer = callGroqApi(query)
+                    withContext(Dispatchers.Main) {
+                        assistantResponse = answer
+                        speak(answer)
+                    }
                 }
             }
         }
@@ -210,9 +301,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale.UK   // Sophisticated British cadence
-            tts.setPitch(0.92f)        // Deeper, calm tone
-            tts.setSpeechRate(1.05f)   // Natural, clean conversational tempo
+            tts.language = Locale.UK
+            tts.setPitch(0.92f)
+            tts.setSpeechRate(1.05f)
         }
     }
 
