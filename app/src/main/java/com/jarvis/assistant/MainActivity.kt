@@ -309,7 +309,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$songQuery")))
                     }
 
-                    // Auto-click the first result video after the page loads
                     Handler(Looper.getMainLooper()).postDelayed({
                         JarvisAccessibilityService.instance?.clickFirstVisibleResult()
                     }, 2200)
@@ -330,7 +329,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     startActivity(cameraIntent)
 
                     if (isCapture) {
-                        // Taps shutter button after camera opens (middle bottom area)
                         Handler(Looper.getMainLooper()).postDelayed({
                             JarvisAccessibilityService.instance?.tap(540f, 2100f)
                         }, 2000)
@@ -510,4 +508,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             contentAlignment = Alignment.BottomCenter
         ) {
             Column(
-          
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 28.dp)
+                    .background(
+   
