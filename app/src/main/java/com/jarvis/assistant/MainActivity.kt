@@ -20,7 +20,6 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.speech.tts.Voice
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -51,6 +50,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    // PASTE YOUR GROQ API KEY INSIDE THE QUOTES BELOW
     private val groqApiKey = "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"
 
     private lateinit var recognizedTextView: TextView
@@ -355,7 +355,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     (n.contains("en-gb-x-rjs") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) && !n.contains("female")
                 }
                 if (maleVoice != null) tts.voice = maleVoice
-                // 0.58f physically forces a deep baritone resonance
                 tts.setPitch(0.58f)
             }
         } catch (e: Exception) {}
@@ -379,42 +378,45 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun callGroq(prompt: String): String {
         return try {
-            val endpoint = "https://api.groq.com/openai/v1/chat/completions"
-            val jsonBody = JSONObject().apply {
-                put("model", "llama-3.3-70b-versatile")
-                put("messages", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
-                    })
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", prompt)
-                    })
-                })
-            }
+            val url = "https://api.groq.com/openai/v1/chat/completions"
+            val payload = JSONObject()
+            payload.put("model", "llama-3.1-8b-instant")
+
+            val messages = JSONArray()
+            val sysMsg = JSONObject()
+            sysMsg.put("role", "system")
+            sysMsg.put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
+            messages.put(sysMsg)
+
+            val userMsg = JSONObject()
+            userMsg.put("role", "user")
+            userMsg.put("content", prompt)
+            messages.put(userMsg)
+
+            payload.put("messages", messages)
+
+            val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
 
             val request = Request.Builder()
-                .url(endpoint)
+                .url(url)
                 .addHeader("Authorization", "Bearer ${groqApiKey.trim()}")
-                .addHeader("Content-Type", "application/json")
-                .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .post(body)
                 .build()
 
-            val res = client.newCall(request).execute()
-            val resString = res.body?.string() ?: ""
+            val response = client.newCall(request).execute()
+            val responseData = response.body?.string() ?: ""
 
-            if (!res.isSuccessful) {
-                return "Groq Error code ${res.code}, Boss."
+            if (!response.isSuccessful) {
+                return "Groq Error code ${response.code}: $responseData"
             }
 
-            val jsonRes = JSONObject(resString)
+            val jsonRes = JSONObject(responseData)
             jsonRes.getJSONArray("choices")
                 .getJSONObject(0)
                 .getJSONObject("message")
                 .getString("content")
         } catch (e: Exception) {
-            "Connection failed: ${e.localizedMessage ?: "Unknown error"}, Boss."
+            "Connection error: ${e.localizedMessage ?: "Unknown"}, Boss."
         }
     }
 
