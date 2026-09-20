@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         .build()
 
     // PASTE YOUR GROQ API KEY INSIDE THE QUOTES BELOW
-    private val groqApiKey = "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"
+    private val groqApiKey = "PASTE_YOUR_GROQ_KEY_HERE"
 
     private lateinit var recognizedTextView: TextView
     private lateinit var responseTextView: TextView
@@ -453,7 +453,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun callGroqWithFallback(prompt: String): String {
-        val candidateModels = listOf("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b")
+        val candidateModels = listOf("llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b")
         var lastErr = ""
 
         for (modelName in candidateModels) {
@@ -461,17 +461,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val url = "https://api.groq.com/openai/v1/chat/completions"
                 val payload = JSONObject()
                 payload.put("model", modelName)
-                
+
                 val messages = JSONArray()
                 val sys = JSONObject()
                 sys.put("role", "system")
-                                        sys.put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
-                    })
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", prompt)
-                    })
-                })
+                sys.put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
+                messages.put(sys)
+
+                val user = JSONObject()
+                user.put("role", "user")
+                user.put("content", prompt)
+                messages.put(user)
 
                 payload.put("messages", messages)
 
