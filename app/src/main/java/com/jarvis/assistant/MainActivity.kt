@@ -43,9 +43,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private val client = OkHttpClient()
 
-    // Replace with your actual Groq API key if not already hardcoded or injected
-    private val groqApiKey = "YOUR_GROQ_API_KEY_HERE"
-
+    // PASTE YOUR REAL GROQ API KEY HERE (starts with gsk_...)
+    
+    private val groqApiKey = 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
+    
     private var recognizedText by mutableStateOf("Press MIC to speak")
     private var assistantResponse by mutableStateOf("")
     private var isListening by mutableStateOf(false)
@@ -206,6 +207,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.US
+            tts.setPitch(2.0f)       // High robotic/alien pitch
+            tts.setSpeechRate(1.7f)   // Full speed rapid delivery
         }
     }
 
