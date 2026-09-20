@@ -256,6 +256,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         when {
+            // Unlock phone using Accessibility Service
+            cleanQuery.contains("unlock") -> {
+                val service = JarvisAccessibilityService.instance
+                if (service != null) {
+                    val reply = "Unlocking your device now, sir."
+                    assistantResponse = reply
+                    speakAndExecute(reply) {
+                        service.unlockDevice()
+                        dismissOverlay()
+                    }
+                } else {
+                    val reply = "Please enable Jarvis in your Accessibility settings first, sir."
+                    assistantResponse = reply
+                    speakAndListen(reply)
+                }
+            }
+
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery
                     .removePrefix("open ")
