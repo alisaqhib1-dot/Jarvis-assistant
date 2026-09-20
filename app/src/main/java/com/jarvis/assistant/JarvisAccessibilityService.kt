@@ -1,9 +1,8 @@
+
 package com.jarvis.assistant
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
-import android.app.KeyguardManager
-import android.content.Context
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
@@ -31,24 +30,26 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun unlockDevice() {
         val handler = Handler(Looper.getMainLooper())
 
-        // 1. Swipe up from bottom of the screen to show PIN keypad
+        // 1. Swipe up firmly across the screen to reveal the PIN pad
         val swipePath = Path().apply {
-            moveTo(540f, 2100f)
-            lineTo(540f, 300f)
+            moveTo(540f, 2150f)
+            lineTo(540f, 450f)
         }
+        
+        // 450ms duration ensures realme UI / ColorOS registers it as a true unlock fling
         val swipeGesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(swipePath, 0, 250))
+            .addStroke(GestureDescription.StrokeDescription(swipePath, 50, 450))
             .build()
 
         dispatchGesture(swipeGesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
 
-                // 2. Wait 700ms for PIN keypad to animate up, then tap: 9 - 0 - 4 - 6
-                handler.postDelayed({ tap(810f, 1750f) }, 700)   // Digit 9
-                handler.postDelayed({ tap(540f, 1950f) }, 1000)  // Digit 0
-                handler.postDelayed({ tap(270f, 1550f) }, 1300)  // Digit 4
-                handler.postDelayed({ tap(810f, 1550f) }, 1600)  // Digit 6
+                // 2. Wait 800ms for the PIN pad keypad animation to finish, then enter: 9 - 0 - 4 - 6
+                handler.postDelayed({ tap(810f, 1750f) }, 800)   // Digit 9
+                handler.postDelayed({ tap(540f, 1950f) }, 1100)  // Digit 0
+                handler.postDelayed({ tap(270f, 1550f) }, 1400)  // Digit 4
+                handler.postDelayed({ tap(810f, 1550f) }, 1700)  // Digit 6
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
@@ -62,9 +63,8 @@ class JarvisAccessibilityService : AccessibilityService() {
             moveTo(x, y)
         }
         val tapGesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(tapPath, 0, 80))
+            .addStroke(GestureDescription.StrokeDescription(tapPath, 0, 100))
             .build()
         dispatchGesture(tapGesture, null, null)
     }
 }
-
