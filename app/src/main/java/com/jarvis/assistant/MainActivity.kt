@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -16,33 +18,12 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.view.Gravity
 import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,21 +43,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private val client = OkHttpClient()
 
-    // PASTE YOUR REAL GROQ API KEY INSIDE THE QUOTES BELOW
     private val groqApiKey = "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"
 
-    private var recognizedText by mutableStateOf("Listening...")
-    private var assistantResponse by mutableStateOf("")
-    private var isListening by mutableStateOf(false)
-    private var isContinuousModeActive by mutableStateOf(true)
+    private lateinit var recognizedTextView: TextView
+    private lateinit var responseTextView: TextView
 
+    private var isContinuousModeActive = true
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
-        if (audioGranted) {
+        if (permissions[Manifest.permission.RECORD_AUDIO] == true) {
             initSpeechRecognizer()
         }
     }
@@ -95,6 +73,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             )
         }
 
+        setupSimpleUi()
+
         tts = TextToSpeech(this, this)
 
         val serviceIntent = Intent(this, JarvisService::class.java)
@@ -104,29 +84,74 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             startService(serviceIntent)
         }
 
-        val requiredPermissionsList = mutableListOf(
+        val requiredList = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_CONTACTS
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requiredPermissionsList.add(Manifest.permission.POST_NOTIFICATIONS)
+            requiredList.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        val requiredPermissions = requiredPermissionsList.toTypedArray()
-        val missing = requiredPermissions.filter {
+        val missing = requiredList.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
         if (missing.isEmpty()) {
             initSpeechRecognizer()
         } else {
-            permissionsLauncher.launch(requiredPermissions)
+            permissionsLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    private fun setupSimpleUi() {
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { dismissOverlay() }
         }
 
-        setContent {
-            JarvisSiriOverlay()
+        val cardLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(60, 50, 60, 60)
+
+            val background = GradientDrawable().apply {
+                setColor(Color.parseColor("#E6101827"))
+                cornerRadius = 70f
+            }
+            setBackground(background)
+            setOnClickListener { }
         }
+
+        recognizedTextView = TextView(this).apply {
+            text = "Listening..."
+            setTextColor(Color.WHITE)
+            textSize = 17f
+            gravity = Gravity.CENTER
+        }
+
+        responseTextView = TextView(this).apply {
+            text = ""
+            setTextColor(Color.parseColor("#80D8FF"))
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setPadding(0, 20, 0, 0)
+        }
+
+        cardLayout.addView(recognizedTextView)
+        cardLayout.addView(responseTextView)
+
+        val cardParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            setMargins(40, 0, 40, 70)
+        }
+
+        rootLayout.addView(cardLayout, cardParams)
+        setContentView(rootLayout)
     }
 
     private fun initSpeechRecognizer() {
@@ -136,19 +161,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             speechRecognizer.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    isListening = true
-                }
-
+                override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {
-                    isListening = false
-                }
+                override fun onEndOfSpeech() {}
 
                 override fun onError(error: Int) {
-                    isListening = false
                     if (isContinuousModeActive && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
                         mainHandler.postDelayed({
                             if (isContinuousModeActive) startListening()
@@ -157,11 +176,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
 
                 override fun onResults(results: Bundle?) {
-                    isListening = false
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         val spokenText = matches[0]
-                        recognizedText = spokenText
+                        recognizedTextView.text = spokenText
                         processCommand(spokenText)
                     }
                 }
@@ -175,9 +193,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun startListening() {
         mainHandler.post {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED
-            ) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
@@ -193,9 +209,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun dismissOverlay() {
         isContinuousModeActive = false
-        isListening = false
         mainHandler.post {
-            speechRecognizer.stopListening()
+            if (::speechRecognizer.isInitialized) {
+                speechRecognizer.stopListening()
+            }
         }
         finish()
     }
@@ -222,29 +239,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun getPhoneNumberForName(contactName: String): Pair<String, String>? {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             return null
         }
-
         val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
             ContactsContract.CommonDataKinds.Phone.NUMBER
         )
-        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
-        val selectionArgs = arrayOf("%$contactName%")
-
-        val cursor = contentResolver.query(uri, projection, selection, selectionArgs, null)
+        val cursor = contentResolver.query(
+            uri, projection,
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
+            arrayOf("%$contactName%"), null
+        )
         cursor?.use {
             if (it.moveToFirst()) {
-                val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                if (nameIndex != -1 && numberIndex != -1) {
-                    val foundName = it.getString(nameIndex)
-                    val foundNumber = it.getString(numberIndex)
-                    return Pair(foundName, foundNumber)
+                val nameIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                if (nameIdx != -1 && numIdx != -1) {
+                    return Pair(it.getString(nameIdx), it.getString(numIdx))
                 }
             }
         }
@@ -261,7 +274,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun processCommand(query: String) {
         val cleanQuery = query.lowercase().trim()
 
-        if (cleanQuery in listOf("stop", "exit", "goodbye", "bye", "cancel", "that's all", "dismiss", "close")) {
+        if (cleanQuery in listOf("stop", "exit", "goodbye", "bye", "cancel", "dismiss", "close")) {
             dismissOverlay()
             return
         }
@@ -271,7 +284,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
                     val reply = "Unlocking your device now, sir."
-                    assistantResponse = reply
+                    responseTextView.text = reply
                     speakAndExecute(reply) {
                         val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -283,8 +296,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }, 500)
                     }
                 } else {
-                    val reply = "Please enable Jarvis in your Accessibility settings first, sir."
-                    assistantResponse = reply
+                    val reply = "Please enable Jarvis in Accessibility settings first, sir."
+                    responseTextView.text = reply
                     speakAndListen(reply)
                 }
             }
@@ -296,7 +309,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .trim()
 
                 val reply = "Playing $songQuery on YouTube, sir."
-                assistantResponse = reply
+                responseTextView.text = reply
                 speakAndExecute(reply) {
                     val ytIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube://www.youtube.com/results?search_query=$songQuery")).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -318,7 +331,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             cleanQuery.contains("open camera") || cleanQuery.contains("take a picture") || cleanQuery.contains("take a photo") -> {
                 val isCapture = cleanQuery.contains("take a")
                 val reply = if (isCapture) "Taking a photo now, sir." else "Opening camera, sir."
-                assistantResponse = reply
+                responseTextView.text = reply
                 speakAndExecute(reply) {
                     val cameraIntent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -336,30 +349,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
-                val appTarget = cleanQuery
-                    .removePrefix("open ")
-                    .removePrefix("launch ")
-                    .trim()
-
+                val appTarget = cleanQuery.removePrefix("open ").removePrefix("launch ").trim()
                 val success = openAppByName(appTarget)
-                val reply = if (success) {
-                    "Opening $appTarget, sir."
-                } else {
-                    "I could not find $appTarget on your device, sir."
-                }
-                assistantResponse = reply
+                val reply = if (success) "Opening $appTarget, sir." else "I could not find $appTarget on your device, sir."
+                responseTextView.text = reply
                 speakAndListen(reply)
             }
 
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
-                val contactTarget = cleanQuery
-                    .removePrefix("call ")
-                    .removePrefix("dial ")
-                    .trim()
-
+                val contactTarget = cleanQuery.removePrefix("call ").removePrefix("dial ").trim()
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-                    val reply = "Permission to place calls has not been granted, sir."
-                    assistantResponse = reply
+                    val reply = "Call permission has not been granted, sir."
+                    responseTextView.text = reply
                     speakAndListen(reply)
                     return
                 }
@@ -367,7 +368,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 if (contactTarget.replace("[\\s-]".toRegex(), "").all { it.isDigit() }) {
                     isContinuousModeActive = false
                     val reply = "Calling $contactTarget now, sir."
-                    assistantResponse = reply
+                    responseTextView.text = reply
                     speakAndExecute(reply) { makePhoneCall(contactTarget) }
                 } else {
                     val contactMatch = getPhoneNumberForName(contactTarget)
@@ -375,22 +376,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         isContinuousModeActive = false
                         val (name, number) = contactMatch
                         val reply = "Calling $name now, sir."
-                        assistantResponse = reply
+                        responseTextView.text = reply
                         speakAndExecute(reply) { makePhoneCall(number) }
                     } else {
                         val reply = "I could not find $contactTarget in your contacts, sir."
-                        assistantResponse = reply
+                        responseTextView.text = reply
                         speakAndListen(reply)
                     }
                 }
             }
 
             else -> {
-                assistantResponse = "Thinking..."
+                responseTextView.text = "Thinking..."
                 CoroutineScope(Dispatchers.IO).launch {
                     val answer = callGroqApi(query)
                     withContext(Dispatchers.Main) {
-                        assistantResponse = answer
+                        responseTextView.text = answer
                         speakAndListen(answer)
                     }
                 }
@@ -406,7 +407,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are JARVIS, Tony Stark's AI assistant. Keep responses very brief, articulate, and natural (1 to 2 sentences max).")
+                        put("content", "You are JARVIS. Answer concisely in 1-2 sentences.")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -425,7 +426,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return "Groq Error ${response.code}: $responseBody"
+                return "Error ${response.code}"
             }
 
             val jsonResponse = JSONObject(responseBody)
@@ -435,7 +436,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .getJSONObject("message")
                 .getString("content")
         } catch (e: Exception) {
-            "Error: ${e.localizedMessage ?: "Unknown error"}"
+            "Error: ${e.localizedMessage ?: "Network issue"}"
         }
     }
 
@@ -491,23 +492,4 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tts.shutdown()
         }
     }
-
-    @Composable
-    fun JarvisSiriOverlay() {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable { dismissOverlay() },
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .background(Color(0xFF101827.toInt()), RoundedCornerShape(32.dp))
-                    .clickable(enabled = false) {}
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
+}
