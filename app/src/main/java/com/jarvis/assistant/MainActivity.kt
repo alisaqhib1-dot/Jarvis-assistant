@@ -43,10 +43,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private val client = OkHttpClient()
 
-    // PASTE YOUR REAL GROQ API KEY HERE (starts with gsk_...)
-    
+    // PASTE YOUR REAL GROQ API KEY HERE (keep the double quotes)
     private val groqApiKey = "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"
-    
+
     private var recognizedText by mutableStateOf("Press MIC to speak")
     private var assistantResponse by mutableStateOf("")
     private var isListening by mutableStateOf(false)
@@ -118,46 +117,51 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         speechRecognizer.startListening(intent)
     }
 
-    private fun launchApp(packageName: String): Boolean {
-        val intent = packageManager.getLaunchIntentForPackage(packageName)
-        return if (intent != null) {
-            startActivity(intent)
-            true
-        } else {
-            false
+    private fun openAppByName(appName: String): Boolean {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
         }
+        val apps = pm.queryIntentActivities(intent, 0)
+        val target = appName.lowercase().trim()
+
+        for (resolveInfo in apps) {
+            val label = resolveInfo.loadLabel(pm).toString().lowercase().trim()
+            if (label == target || label.contains(target) || target.contains(label)) {
+                val launchIntent = pm.getLaunchIntentForPackage(resolveInfo.activityInfo.packageName)
+                if (launchIntent != null) {
+                    startActivity(launchIntent)
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private fun processCommand(query: String) {
         val cleanQuery = query.lowercase().trim()
 
-        when {
-            cleanQuery.contains("open youtube") -> {
-                val launched = launchApp("com.google.android.youtube")
-                val reply = if (launched) "Opening YouTube, sir." else "YouTube is not installed."
-                assistantResponse = reply
-                speak(reply)
+        if (cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ")) {
+            val appTarget = cleanQuery
+                .removePrefix("open ")
+                .removePrefix("launch ")
+                .trim()
+
+            val success = openAppByName(appTarget)
+            val reply = if (success) {
+                "Opening $appTarget, sir."
+            } else {
+                "I could not find $appTarget on your device, sir."
             }
-            cleanQuery.contains("open whatsapp") -> {
-                val launched = launchApp("com.whatsapp")
-                val reply = if (launched) "Opening WhatsApp, sir." else "WhatsApp is not installed."
-                assistantResponse = reply
-                speak(reply)
-            }
-            cleanQuery.contains("open chrome") || cleanQuery.contains("open browser") -> {
-                val launched = launchApp("com.android.chrome")
-                val reply = if (launched) "Opening Chrome, sir." else "Chrome is not installed."
-                assistantResponse = reply
-                speak(reply)
-            }
-            else -> {
-                assistantResponse = "Thinking..."
-                CoroutineScope(Dispatchers.IO).launch {
-                    val answer = callGroqApi(query)
-                    withContext(Dispatchers.Main) {
-                        assistantResponse = answer
-                        speak(answer)
-                    }
+            assistantResponse = reply
+            speak(reply)
+        } else {
+            assistantResponse = "Thinking..."
+            CoroutineScope(Dispatchers.IO).launch {
+                val answer = callGroqApi(query)
+                withContext(Dispatchers.Main) {
+                    assistantResponse = answer
+                    speak(answer)
                 }
             }
         }
@@ -171,7 +175,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are Jarvis, a precise and witty AI assistant. Keep responses concise and direct.")
+                        put("content", "You are JARVIS, Tony Stark's sophisticated, polite, and witty AI assistant. Keep all responses brief, articulate, and natural.")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -206,9 +210,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale.US
-            tts.setPitch(2.0f)       // High robotic/alien pitch
-            tts.setSpeechRate(1.7f)   // Full speed rapid delivery
+            tts.language = Locale.UK   // Sophisticated British cadence
+            tts.setPitch(0.92f)        // Deeper, calm tone
+            tts.setSpeechRate(1.05f)   // Natural, clean conversational tempo
         }
     }
 
