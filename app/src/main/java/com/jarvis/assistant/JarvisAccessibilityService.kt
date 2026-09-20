@@ -13,6 +13,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     companion object {
         var instance: JarvisAccessibilityService? = null
+            private set
     }
 
     override fun onServiceConnected() {
@@ -20,7 +21,17 @@ class JarvisAccessibilityService : AccessibilityService() {
         instance = this
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val pkg = event?.packageName?.toString() ?: return
+
+        // Auto-send WhatsApp message when window opens
+        if (pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b") {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                clickWhatsAppSend(8)
+            }
+        }
+    }
+
     override fun onInterrupt() {}
 
     override fun onDestroy() {
@@ -43,11 +54,10 @@ class JarvisAccessibilityService : AccessibilityService() {
         dispatchGesture(swipeGesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
-
-                handler.postDelayed({ tap(800f, 1606f) }, 600)  // 9
-                handler.postDelayed({ tap(558f, 1836f) }, 900)  // 0
-                handler.postDelayed({ tap(265f, 1390f) }, 1200) // 4
-                handler.postDelayed({ tap(842f, 1390f) }, 1500) // 6
+                handler.postDelayed({ tap(800f, 1650f) }, 600)
+                handler.postDelayed({ tap(550f, 1350f) }, 900)
+                handler.postDelayed({ tap(285f, 1350f) }, 1200)
+                handler.postDelayed({ tap(842f, 1350f) }, 1500)
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
@@ -78,22 +88,26 @@ class JarvisAccessibilityService : AccessibilityService() {
         return null
     }
 
-    fun clickWhatsAppSend() {
+    fun clickWhatsAppSend(retries: Int = 8) {
         val root = rootInActiveWindow ?: return
-        val sendNodes = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
-        if (!sendNodes.isNullOrEmpty()) {
-            sendNodes[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            return
-        }
 
-        val sendByDesc = root.findAccessibilityNodeInfosByText("Send")
-        if (!sendByDesc.isNullOrEmpty()) {
-            for (node in sendByDesc) {
-                if (node.isClickable) {
-                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    return
-                }
-            }
+        // 1. Try finding by resource ID
+        val sendById = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")?.firstOrNull()
+            ?: root.findAccessibilityNodeInfosByViewId("com.whatsapp.w4b:id/send")?.firstOrNull()
+
+        // 2. Try finding by text or description
+        val sendByDesc = root.findAccessibilityNodeInfosByText("Send")?.firstOrNull()
+            ?: root.findAccessibilityNodeInfosByText("भेजें")?.firstOrNull()
+
+        val targetBtn = sendById ?: sendByDesc
+
+        if (targetBtn != null && targetBtn.isEnabled) {
+            targetBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } else if (retries > 0) {
+            // Wait 250ms and search again
+            Handler(Looper.getMainLooper()).postDelayed({
+                clickWhatsAppSend(retries - 1)
+            }, 250)
         }
     }
 
@@ -101,9 +115,11 @@ class JarvisAccessibilityService : AccessibilityService() {
         val tapPath = Path().apply {
             moveTo(x, y)
         }
+
         val tapGesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(tapPath, 0, 80))
             .build()
+
         dispatchGesture(tapGesture, null, null)
     }
 }
