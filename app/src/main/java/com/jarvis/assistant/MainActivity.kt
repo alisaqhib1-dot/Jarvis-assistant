@@ -50,7 +50,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    // PASTE YOUR GROQ API KEY INSIDE THE QUOTES BELOW
     private val groqApiKey ="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"
 
     private lateinit var recognizedTextView: TextView
@@ -466,8 +465,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         for (modelName in candidateModels) {
             try {
                 val url = "https://api.groq.com/openai/v1/chat/completions"
-                val yload = JSONObject()
-                payload.put("model", modelName)
+                val payload = JSONObject()
+                                payload.put("model", modelName)
 
                 val messages = JSONArray()
                 val sys = JSONObject()
