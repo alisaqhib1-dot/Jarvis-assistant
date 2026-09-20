@@ -17,6 +17,7 @@ import android.speech.tts.TextToSpeech
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import com.jarvis.assistant.R
 import java.util.Locale
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
@@ -61,14 +62,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun requestImmortalPermissions() {
-        // Request microphone permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 101)
             }
         }
 
-        // Request battery optimization exemption for 24/7 background lock
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(packageName)) {
@@ -79,7 +78,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
         }
 
-        // Request write settings permission for brightness control
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(this)) {
             val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
                 data = Uri.parse("package:$packageName")
@@ -127,7 +125,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val lower = command.lowercase(Locale.ROOT)
 
         when {
-            // Flashlight
             lower.contains("turn on flashlight") || lower.contains("torch on") -> {
                 val response = deviceController.setFlashlight(true)
                 speak(response)
@@ -136,8 +133,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 val response = deviceController.setFlashlight(false)
                 speak(response)
             }
-
-            // Silent & Sound Modes
             lower.contains("silent") || lower.contains("mute") -> {
                 val response = deviceController.setRingerMode("silent")
                 speak(response)
@@ -150,38 +145,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 val response = deviceController.setRingerMode("normal")
                 speak(response)
             }
-
-            // Battery Telemetry
             lower.contains("battery") || lower.contains("telemetry") -> {
                 val response = deviceController.getBatteryTelemetry()
                 speak(response)
             }
-
-            // Cache & Storage Junk
             lower.contains("clean cache") || lower.contains("clear junk") || lower.contains("clean storage") -> {
                 val response = deviceController.cleanAppCache()
                 speak(response)
             }
-
-            // Screen Brightness
             lower.contains("brightness") -> {
                 val numbers = Regex("\\d+").findAll(lower).map { it.value.toInt() }.toList()
                 val level = if (numbers.isNotEmpty()) numbers[0] else 128
                 val response = deviceController.setBrightness(level)
                 speak(response)
             }
-
-            // WhatsApp Dispatch fallback
             lower.startsWith("send whatsapp") || lower.startsWith("whatsapp") -> {
                 speak("Opening WhatsApp")
                 JarvisAccessibilityService.instance?.clickWhatsAppSend()
             }
-
-            // Unlock phone
             lower.contains("unlock") -> {
                 JarvisAccessibilityService.instance?.unlockDevice()
             }
-
             else -> {
                 speak("Command received: $command")
             }
