@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     // PASTE YOUR REAL GROQ API KEY HERE (starts with gsk_...)
     
-    private val groqApiKey = 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
+    private val groqApiKey = "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"
     
     private var recognizedText by mutableStateOf("Press MIC to speak")
     private var assistantResponse by mutableStateOf("")
