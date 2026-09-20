@@ -196,8 +196,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return try {
             val mediaType = "application/json; charset=utf-8".toMediaType()
             val payload = JSONObject().apply {
-           put("model", "llama-3.3-70b-versatile")
-        
+           put("model", "gemma2-9b-it")
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
