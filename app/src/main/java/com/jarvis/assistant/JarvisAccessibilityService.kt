@@ -3,6 +3,7 @@ package com.jarvis.assistant
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -56,7 +57,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Finds and clicks the first clickable search result or item on screen.
+     * Clicks the first video result in YouTube
      */
     fun clickFirstVisibleResult() {
         val root = rootInActiveWindow ?: return
@@ -65,11 +66,10 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     private fun findFirstClickableItem(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        // Look for items below the top search header
-        val bounds = android.graphics.Rect()
+        val bounds = Rect()
         node.getBoundsInScreen(bounds)
 
-        if (node.isClickable && bounds.top > 300 && bounds.height() > 100) {
+        if (node.isClickable && bounds.top > 320 && bounds.height() > 120) {
             return node
         }
 
@@ -79,6 +79,29 @@ class JarvisAccessibilityService : AccessibilityService() {
             if (found != null) return found
         }
         return null
+    }
+
+    /**
+     * Locates WhatsApp's native send button by content description and clicks it
+     */
+    fun clickWhatsAppSend() {
+        val root = rootInActiveWindow ?: return
+        val sendNodes = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
+        if (!sendNodes.isNullOrEmpty()) {
+            sendNodes[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            return
+        }
+
+        // Fallback: search by content description ("Send")
+        val sendByDesc = root.findAccessibilityNodeInfosByText("Send")
+        if (!sendByDesc.isNullOrEmpty()) {
+            for (node in sendByDesc) {
+                if (node.isClickable) {
+                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    return
+                }
+            }
+        }
     }
 
     fun tap(x: Float, y: Float) {
