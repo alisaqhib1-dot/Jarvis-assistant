@@ -500,16 +500,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @Composable
     fun JarvisSiriOverlay() {
+        val overlayColor = Color(0xF2, 0x10, 0x18, 0x27)
+        val circleActive = Color(0xFF, 0x00, 0xE5, 0xFF)
+        val circleIdle = Color(0xFF, 0x1E, 0x88, 0xE5)
+        val responseColor = Color(0xFF, 0x80, 0xD8, 0xFF)
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Transparent)
                 .clickable { dismissOverlay() },
             contentAlignment = Alignment.BottomCenter
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 28.dp)
-                    .background(
-   
+            Co
