@@ -24,11 +24,9 @@ class JarvisAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
 
-        // Auto-send WhatsApp message when window opens
+        // Trigger send search whenever WhatsApp window or content changes
         if (pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b") {
-            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                clickWhatsAppSend(8)
-            }
+            clickWhatsAppSend(10)
         }
     }
 
@@ -88,27 +86,45 @@ class JarvisAccessibilityService : AccessibilityService() {
         return null
     }
 
-    fun clickWhatsAppSend(retries: Int = 8) {
+    fun clickWhatsAppSend(retries: Int = 10) {
         val root = rootInActiveWindow ?: return
 
-        // 1. Try finding by resource ID
-        val sendById = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")?.firstOrNull()
-            ?: root.findAccessibilityNodeInfosByViewId("com.whatsapp.w4b:id/send")?.firstOrNull()
+        // Recursive search for the Send button across IDs, descriptions, and Hindi locale
+        val sendBtn = findSendNode(root)
 
-        // 2. Try finding by text or description
-        val sendByDesc = root.findAccessibilityNodeInfosByText("Send")?.firstOrNull()
-            ?: root.findAccessibilityNodeInfosByText("भेजें")?.firstOrNull()
-
-        val targetBtn = sendById ?: sendByDesc
-
-        if (targetBtn != null && targetBtn.isEnabled) {
-            targetBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (sendBtn != null && sendBtn.isEnabled) {
+            sendBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         } else if (retries > 0) {
-            // Wait 250ms and search again
             Handler(Looper.getMainLooper()).postDelayed({
                 clickWhatsAppSend(retries - 1)
-            }, 250)
+            }, 300)
         }
+    }
+
+    private fun findSendNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val desc = node.contentDescription?.toString()?.trim()
+        val text = node.text?.toString()?.trim()
+        val viewId = node.viewIdResourceName?.toString()
+
+        if (viewId == "com.whatsapp:id/send" || viewId == "com.whatsapp.w4b:id/send") {
+            return node
+        }
+
+        if (desc.equals("Send", ignoreCase = true) || desc.equals("भेजें", ignoreCase = true)) {
+            return node
+        }
+
+        if (text.equals("Send", ignoreCase = true) || text.equals("भेजें", ignoreCase = true)) {
+            return node
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findSendNode(child)
+            if (result != null) return result
+        }
+
+        return null
     }
 
     fun tap(x: Float, y: Float) {
