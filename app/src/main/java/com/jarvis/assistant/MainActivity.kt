@@ -20,11 +20,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,8 +60,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private val client = OkHttpClient()
 
-    // PASTE YOUR REAL GROQ API KEY HERE (keep the double quotes)
-    private val groqApiKey = "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
+    // PASTE YOUR REAL GROQ API KEY INSIDE THE QUOTES BELOW
+    private val groqApiKey = "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"
 
     private var recognizedText by mutableStateOf("Listening...")
     private var assistantResponse by mutableStateOf("")
@@ -72,7 +82,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Wake screen and display directly over lock screen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -262,7 +271,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val reply = "Unlocking your device now, sir."
                     assistantResponse = reply
                     speakAndExecute(reply) {
-                        // Dismiss Jarvis UI first, then perform swipe and PIN tap on lockscreen
                         finish()
                         Handler(Looper.getMainLooper()).postDelayed({
                             service.unlockDevice()
