@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +21,7 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Locale
 
@@ -28,6 +31,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var speechRecognizer: SpeechRecognizer
     private lateinit var deviceController: DeviceController
 
+    private lateinit var tvHeader: TextView
     private lateinit var tvStatus: TextView
     private lateinit var etInput: EditText
     private lateinit var btnSpeak: Button
@@ -38,47 +42,132 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
         deviceController = DeviceController(this)
 
-        // Build UI programmatically to avoid R resource linking errors
+        val scrollView = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#090D16"))
+            isFillViewport = true
+        }
+
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 48, 48, 48)
+            setPadding(50, 70, 50, 50)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        tvHeader = TextView(this).apply {
+            text = "A C R U X"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#00E5FF"))
+            letterSpacing = 0.3f
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#121212"))
+            setPadding(0, 20, 0, 10)
+        }
+        rootLayout.addView(tvHeader)
+
+        val tvSub = TextView(this).apply {
+            text = "TACTICAL SYSTEM ONLINE"
+            textSize = 11f
+            setTextColor(Color.parseColor("#5A6E85"))
+            letterSpacing = 0.15f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 60)
+        }
+        rootLayout.addView(tvSub)
+
+        val cardDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#121826"))
+            cornerRadius = 24f
+            setStroke(2, Color.parseColor("#1E293B"))
+        }
+
+        val statusCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardDrawable
+            setPadding(40, 40, 40, 40)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.setMargins(0, 0, 0, 60)
+            layoutParams = params
         }
 
         tvStatus = TextView(this).apply {
-            text = "ACRUX Online"
-            textSize = 20f
-            setTextColor(Color.WHITE)
+            text = "Standing by for command..."
+            textSize = 16f
+            setTextColor(Color.parseColor("#E2E8F0"))
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 40)
+            setLineSpacing(1.2f, 1.2f)
         }
-        rootLayout.addView(tvStatus)
+        statusCard.addView(tvStatus)
+        rootLayout.addView(statusCard)
+
+        val inputDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#141C2E"))
+            cornerRadius = 20f
+            setStroke(2, Color.parseColor("#27354A"))
+        }
 
         etInput = EditText(this).apply {
-            hint = "Type a command..."
-            setHintTextColor(Color.GRAY)
+            hint = "Ask ACRUX or issue system directive..."
+            setHintTextColor(Color.parseColor("#64748B"))
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#1E1E1E"))
-            setPadding(30, 30, 30, 30)
+            textSize = 14f
+            background = inputDrawable
+            setPadding(36, 32, 36, 32)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.setMargins(0, 0, 0, 24)
+            layoutParams = params
         }
         rootLayout.addView(etInput)
 
+        val sendBtnDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#1E293B"))
+            cornerRadius = 20f
+            setStroke(2, Color.parseColor("#334155"))
+        }
+
         btnSend = Button(this).apply {
-            text = "Execute Command"
-            setBackgroundColor(Color.parseColor("#333333"))
-            setTextColor(Color.WHITE)
+            text = "EXECUTE DIRECTIVE"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#CBD5E1"))
+            background = sendBtnDrawable
+            setPadding(0, 30, 0, 30)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.setMargins(0, 0, 0, 20)
+            layoutParams = params
         }
         rootLayout.addView(btnSend)
 
+        val voiceBtnDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#00E5FF"))
+            cornerRadius = 20f
+        }
+
         btnSpeak = Button(this).apply {
-            text = "Voice Input"
-            setBackgroundColor(Color.parseColor("#007ACC"))
-            setTextColor(Color.WHITE)
+            text = "● INITIATE VOICE"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#090D16"))
+            background = voiceBtnDrawable
+            setPadding(0, 32, 0, 32)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            layoutParams = params
         }
         rootLayout.addView(btnSpeak)
 
-        setContentView(rootLayout)
+        scrollView.addView(rootLayout)
+        setContentView(scrollView)
 
         tts = TextToSpeech(this, this)
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
@@ -127,22 +216,26 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun setupSpeechRecognizer() {
         speechRecognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                tvStatus.text = "Listening..."
+                tvStatus.text = "Listening for audio stream..."
+                tvStatus.setTextColor(Color.parseColor("#00E5FF"))
             }
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {
-                tvStatus.text = "Processing..."
+                tvStatus.text = "Processing directive..."
+                tvStatus.setTextColor(Color.parseColor("#94A3B8"))
             }
             override fun onError(error: Int) {
-                tvStatus.text = "Tap Voice Input to speak"
+                tvStatus.text = "Standing by. Tap Initiate Voice to retry."
+                tvStatus.setTextColor(Color.parseColor("#EF4444"))
             }
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
                     val query = matches[0]
                     tvStatus.text = query
+                    tvStatus.setTextColor(Color.WHITE)
                     handleUserCommand(query)
                 }
             }
@@ -205,19 +298,22 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 JarvisAccessibilityService.instance?.unlockDevice()
             }
             else -> {
-                speak("Command received: $command")
+                speak("Directive logged: $command")
             }
         }
     }
 
     private fun speak(text: String) {
         tvStatus.text = text
+        tvStatus.setTextColor(Color.WHITE)
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "UTTERANCE_ID")
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.US
+            tts.setPitch(0.95f)
+            tts.setSpeechRate(0.95f)
         }
     }
 
