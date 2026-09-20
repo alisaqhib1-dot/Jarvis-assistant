@@ -182,6 +182,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         } catch (e: Exception) { false }
     }
 
+    private fun openAppByName(appName: String): Boolean {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+        val apps = pm.queryIntentActivities(intent, 0)
+        val target = appName.lowercase().trim()
+
+        for (info in apps) {
+            val label = info.loadLabel(pm).toString().lowercase().trim()
+            if (label == target || label.contains(target)) {
+                val launchIntent = pm.getLaunchIntentForPackage(info.activityInfo.packageName)
+                if (launchIntent != null) {
+                    startActivity(launchIntent)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private fun getContactPhone(name: String): Pair<String, String>? {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
         val cursor = contentResolver.query(
@@ -196,21 +215,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun processCommand(query: String) {
-        val q = query.lowercase().trim()
-        if (q in listOf("stop", "exit", "cancel", "dismiss", "close")) {
+        var q = query.lowercase().trim()
+        q = q.removePrefix("hey acrux").removePrefix("acrux").removePrefix("jarvis").trim()
+
+        if (q in listOf("stop", "exit", "cancel", "dismiss", "close", "bye")) {
             dismissOverlay()
             return
         }
 
         when {
-            q.contains("torch on") || q.contains("flashlight on") -> {
+            // Flashlight
+            q.contains("flashlight on") || q.contains("torch on") -> {
                 val ok = toggleFlashlight(true)
                 respond(if (ok) "Flashlight activated, Boss." else "Unable to turn on flashlight, Sir Yuno.")
             }
-            q.contains("torch off") || q.contains("flashlight off") -> {
+            q.contains("flashlight off") || q.contains("torch off") -> {
                 val ok = toggleFlashlight(false)
                 respond(if (ok) "Flashlight turned off, Boss." else "Unable to turn off flashlight, Sir Yuno.")
             }
+
+            // Unlock
             q.contains("unlock") -> {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
@@ -224,8 +248,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     respond("Please enable ACRUX in Accessibility settings, Boss.")
                 }
             }
-            q.startsWith("play ") -> {
-                val song = q.removePrefix("play ").removeSuffix("on youtube").trim()
+
+            // YouTube
+            q.contains("play ") -> {
+                val song = q.substringAfter("play ").removeSuffix("on youtube").trim()
                 respond("Playing $song on YouTube, Boss.", execute = {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube://www.youtube.com/results?search_query=$song")).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
@@ -236,7 +262,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     dismissOverlay()
                 })
             }
-            q.contains("take a photo") || q.contains("open camera") -> {
+
+            // Camera / Photo
+            q.contains("take a photo") || q.contains("take a picture") || q.contains("camera") -> {
                 val snap = q.contains("take a")
                 respond(if (snap) "Capturing photo, Sir Yuno." else "Opening camera, Boss.", execute = {
                     startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
@@ -244,8 +272,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     dismissOverlay()
                 })
             }
-            q.startsWith("msg ") || q.startsWith("message ") || q.startsWith("whatsapp ") || q.startsWith("mssg ") -> {
-                val clean = q.removePrefix("msg ").removePrefix("message ").removePrefix("whatsapp ").removePrefix("mssg ").removeSuffix("on whatsapp").removePrefix("to ").trim()
+
+            // WhatsApp Messaging
+            q.contains("msg ") || q.contains("message ") || q.contains("whatsapp ") -> {
+                val clean = q.replace("send a message to ", "").replace("whatsapp ", "").replace("msg ", "").replace("message ", "").removeSuffix("on whatsapp").removePrefix("to ").trim()
                 val parts = clean.split(" saying ", " that ", limit = 2)
                 val targetName = if (parts.size > 1) parts[0].trim() else clean.substringBefore(" ").trim()
                 val messageText = if (parts.size > 1) parts[1].trim() else clean.substringAfter(" ").trim()
@@ -266,8 +296,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     respond("Could not find $targetName in contacts, Sir Yuno.")
                 }
             }
-            q.startsWith("call ") -> {
-                val target = q.removePrefix("call ").trim()
+
+            // Phone Calls
+            q.startsWith("call ") || q.startsWith("dial ") -> {
+                val target = q.removePrefix("call ").removePrefix("dial ").trim()
                 val contact = getContactPhone(target)
                 if (contact != null) {
                     respond("Calling ${contact.first}, Boss.", execute = {
@@ -277,6 +309,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     respond("Could not find $target in contacts, Sir Yuno.")
                 }
             }
+
+            // Open App
+            q.startsWith("open ") || q.startsWith("launch ") -> {
+                val app = q.removePrefix("open ").removePrefix("launch ").trim()
+                val success = openAppByName(app)
+                if (success) {
+                    respond("Opening $app, Sir Yuno.")
+                    mainHandler.postDelayed({ dismissOverlay() }, 1000)
+                } else {
+                    respond("Could not find $app installed, Boss.")
+                }
+            }
+
+            // Groq AI Fallback
             else -> {
                 responseTextView.text = "Processing..."
                 CoroutineScope(Dispatchers.IO).launch {
@@ -289,6 +335,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun respond(text: String, execute: (() -> Unit)? = null) {
         responseTextView.text = text
+
+        // Dynamic Language Switching
+        val isHindi = text.any { it in '\u0900'..'\u097F' }
+        if (isHindi) {
+            tts.language = Locale("hi", "IN")
+            tts.setPitch(0.85f)
+        } else {
+            tts.language = Locale.UK
+            tts.setPitch(0.78f)
+        }
+
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) {
@@ -307,11 +364,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun callGroq(prompt: String): String {
         return try {
             val payload = JSONObject().apply {
-                put("model", "openai/gpt-oss-20b")
+                put("model", "llama-3.3-70b-versatile")
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are ACRUX, an advanced personal AI. Keep responses concise (1-2 sentences). Address the user as 'Sir Yuno' or 'Boss'.")
+                        put("content", "You are ACRUX, a tactical AI assistant. Answer concisely in 1-2 sentences. Speak naturally in whatever language the user speaks. Always address the user respectfully as 'Sir Yuno' or 'Boss'.")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -324,9 +381,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .addHeader("Authorization", "Bearer $groqApiKey")
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            val res = client.newCall(request).execute().body?.string() ?: ""
-            JSONObject(res).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-        } catch (e: Exception) { "At your service, Sir Yuno." }
+            val res = client.newCall(request).execute()
+            val body = res.body?.string() ?: ""
+            if (!res.isSuccessful) {
+                return "Groq Error code ${res.code}, Boss."
+            }
+            JSONObject(body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+        } catch (e: Exception) {
+            "Network error: ${e.message ?: "unknown"}, Boss."
+        }
     }
 
     override fun onInit(status: Int) {
