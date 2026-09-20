@@ -336,15 +336,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun respond(text: String, execute: (() -> Unit)? = null) {
         responseTextView.text = text
 
-        // Dynamic Language Switching
         val isHindi = text.any { it in '\u0900'..'\u097F' }
-        if (isHindi) {
-            tts.language = Locale("hi", "IN")
-            tts.setPitch(0.85f)
-        } else {
-            tts.language = Locale.UK
-            tts.setPitch(0.70f)
-        }
+        try {
+            if (isHindi) {
+                tts.language = Locale("hi", "IN")
+                tts.voices?.firstOrNull { 
+                    it.locale.language == "hi" && (it.name.contains("male") || it.name.contains("hi-in-x-hie") || it.name.contains("hi-in-x-hid")) 
+                }?.let { tts.voice = it }
+                tts.setPitch(0.75f)
+            } else {
+                tts.language = Locale.UK
+                val targetVoice = tts.voices?.firstOrNull { v ->
+                    val n = v.name.lowercase()
+                    (n.contains("en-gb-x-rjs") || n.contains("en-gb-x-gba") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) &&
+                    !n.contains("female")
+                }
+                if (targetVoice != null) {
+                    tts.voice = targetVoice
+                }
+                tts.setPitch(0.65f)
+            }
+        } catch (e: Exception) {}
+
+        tts.setSpeechRate(0.95f)
 
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
@@ -396,17 +410,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.UK
             try {
-                val maleVoice = tts.voices?.firstOrNull { voice ->
-                    val name = voice.name.lowercase()
-                    val features = voice.features?.map { it.lowercase() } ?: emptyList()
-                    (name.contains("male") || features.contains("male") || name.contains("en-gb-x-rjs") || name.contains("en-gb-x-gba")) &&
-                    !name.contains("female")
+                val maleVoice = tts.voices?.firstOrNull { v ->
+                    val n = v.name.lowercase()
+                    (n.contains("en-gb-x-rjs") || n.contains("en-gb-x-gba") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) &&
+                    !n.contains("female")
                 }
                 if (maleVoice != null) {
                     tts.voice = maleVoice
                 }
             } catch (e: Exception) {}
-            tts.setPitch(0.70f)
+            tts.setPitch(0.65f)
             tts.setSpeechRate(0.95f)
         }
     }
