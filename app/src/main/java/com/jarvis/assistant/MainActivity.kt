@@ -14,6 +14,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,6 +71,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Wake screen and display directly over lock screen
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
 
         tts = TextToSpeech(this, this)
 
@@ -173,7 +186,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         mainHandler.post {
             speechRecognizer.stopListening()
         }
-        finish() // Closes the floating pop-up
+        finish()
     }
 
     private fun openAppByName(appName: String): Boolean {
@@ -402,7 +415,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @Composable
     fun JarvisSiriOverlay() {
-        // Fullscreen transparent container: tapping empty area dismisses the overlay
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -410,20 +422,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .clickable { dismissOverlay() },
             contentAlignment = Alignment.BottomCenter
         ) {
-            // Siri / Assistant Bottom Floating Sheet
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 28.dp)
                     .background(
-                        color = Color(0xF2101827), // Sleek semi-transparent dark acrylic
+                        color = Color(0xF2101827),
                         shape = RoundedCornerShape(32.dp)
                     )
-                    .clickable(enabled = false) {} // Prevent click-through inside the card
+                    .clickable(enabled = false) {}
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Glowing Arc Reactor Orb Indicator
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -442,7 +452,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // User query / Listening status
                 Text(
                     text = recognizedText,
                     color = Color.White,
@@ -451,7 +460,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // JARVIS response
                 if (assistantResponse.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
