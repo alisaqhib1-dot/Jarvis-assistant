@@ -5,11 +5,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.ContactsContract
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,11 +51,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     // PASTE YOUR REAL GROQ API KEY HERE (keep the double quotes)
     private val groqApiKey = "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"
 
-    private var recognizedText by mutableStateOf("Press MIC to speak")
+    private var recognizedText by mutableStateOf("Press MIC to start conversation")
     private var assistantResponse by mutableStateOf("")
     private var isListening by mutableStateOf(false)
+    private var isContinuousModeActive by mutableStateOf(false)
 
-    // Request permissions for Audio, Phone Calling, and Reading Contacts
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -89,44 +94,76 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun initSpeechRecognizer() {
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        speechRecognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                isListening = true
+        mainHandler.post {
+            if (::speechRecognizer.isInitialized) {
+                speechRecognizer.destroy()
             }
-
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {
-                isListening = false
-            }
-
-            override fun onError(error: Int) {
-                isListening = false
-                recognizedText = "Recognition error: $error"
-            }
-
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    val spokenText = matches[0]
-                    recognizedText = spokenText
-                    processCommand(spokenText)
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            speechRecognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    isListening = true
                 }
-            }
 
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    isListening = false
+                }
+
+                override fun onError(error: Int) {
+                    isListening = false
+                    // If no speech detected in continuous mode, retry listening after brief delay
+                    if (isContinuousModeActive && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                        mainHandler.postDelayed({
+                            if (isContinuousModeActive) startListening()
+                        }, 500)
+                    }
+                }
+
+                override fun onResults(results: Bundle?) {
+                    isListening = false
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        val spokenText = matches[0]
+                        recognizedText = spokenText
+                        processCommand(spokenText)
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
     }
 
     private fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+        mainHandler.post {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+            ) {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                }
+                try {
+                    speechRecognizer.startListening(intent)
+                } catch (e: Exception) {
+                    initSpeechRecognizer()
+                }
+            }
         }
-        speechRecognizer.startListening(intent)
+    }
+
+    private fun stopContinuousConversation() {
+        isContinuousModeActive = false
+        isListening = false
+        mainHandler.post {
+            speechRecognizer.stopListening()
+        }
+        val reply = "Standing by, sir."
+        assistantResponse = reply
+        tts.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "STANDBY_ID")
     }
 
     private fun openAppByName(appName: String): Boolean {
@@ -151,8 +188,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun getPhoneNumberForName(contactName: String): Pair<String, String>? {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) 
-            != PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
             return null
         }
 
@@ -189,8 +227,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun processCommand(query: String) {
         val cleanQuery = query.lowercase().trim()
 
+        // 1. Exit Continuous Mode Commands
+        if (cleanQuery in listOf("stop", "exit", "goodbye", "bye", "cancel", "that's all", "sleep")) {
+            stopContinuousConversation()
+            return
+        }
+
         when {
-            // 1. App Launching Commands
+            // 2. App Launching Commands
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery
                     .removePrefix("open ")
@@ -204,10 +248,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     "I could not find $appTarget on your device, sir."
                 }
                 assistantResponse = reply
-                speak(reply)
+                speakAndListen(reply)
             }
 
-            // 2. Call / Dial Commands
+            // 3. Phone Call Commands
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
                 val contactTarget = cleanQuery
                     .removePrefix("call ")
@@ -217,41 +261,40 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
                     val reply = "Permission to place calls has not been granted, sir."
                     assistantResponse = reply
-                    speak(reply)
+                    speakAndListen(reply)
                     return
                 }
 
-                // If user dictates digits directly (e.g. "call 9876543210")
+                // If user dictates digits directly
                 if (contactTarget.replace("[\\s-]".toRegex(), "").all { it.isDigit() }) {
+                    isContinuousModeActive = false // Pause continuous mode during phone call
                     val reply = "Calling $contactTarget now, sir."
                     assistantResponse = reply
-                    speak(reply)
-                    makePhoneCall(contactTarget)
+                    speakAndExecute(reply) { makePhoneCall(contactTarget) }
                 } else {
-                    // Look up contact name in the phonebook
                     val contactMatch = getPhoneNumberForName(contactTarget)
                     if (contactMatch != null) {
+                        isContinuousModeActive = false
                         val (name, number) = contactMatch
                         val reply = "Calling $name now, sir."
                         assistantResponse = reply
-                        speak(reply)
-                        makePhoneCall(number)
+                        speakAndExecute(reply) { makePhoneCall(number) }
                     } else {
                         val reply = "I could not find $contactTarget in your contacts, sir."
                         assistantResponse = reply
-                        speak(reply)
+                        speakAndListen(reply)
                     }
                 }
             }
 
-            // 3. Fallback to Groq AI
+            // 4. General Groq AI Response
             else -> {
                 assistantResponse = "Thinking..."
                 CoroutineScope(Dispatchers.IO).launch {
                     val answer = callGroqApi(query)
                     withContext(Dispatchers.Main) {
                         assistantResponse = answer
-                        speak(answer)
+                        speakAndListen(answer)
                     }
                 }
             }
@@ -266,7 +309,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are JARVIS, Tony Stark's sophisticated, polite, and witty AI assistant. Keep all responses brief, articulate, and natural.")
+                        put("content", "You are JARVIS, Tony Stark's AI assistant. Give very concise, witty, and helpful responses in 1-2 sentences.")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -304,15 +347,48 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tts.language = Locale.UK
             tts.setPitch(0.92f)
             tts.setSpeechRate(1.05f)
+
+            // Listen for when TTS finishes speaking
+            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+
+                override fun onDone(utteranceId: String?) {
+                    if (utteranceId == "JARVIS_CONTINUOUS" && isContinuousModeActive) {
+                        mainHandler.postDelayed({
+                            startListening()
+                        }, 250) // Small pause before turning mic back on
+                    }
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {}
+            })
         }
     }
 
-    private fun speak(text: String) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_TTS")
+    // Speaks text and immediately listens again when done
+    private fun speakAndListen(text: String) {
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_CONTINUOUS")
+    }
+
+    // Speaks text, then executes an action (like dialing a call)
+    private fun speakAndExecute(text: String, action: () -> Unit) {
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == "JARVIS_EXECUTE") {
+                    mainHandler.post { action() }
+                }
+            }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {}
+        })
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_EXECUTE")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        isContinuousModeActive = false
         if (::speechRecognizer.isInitialized) {
             speechRecognizer.destroy()
         }
@@ -362,21 +438,37 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             Button(
-                onClick = { startListening() },
+                onClick = {
+                    if (isContinuousModeActive) {
+                        stopContinuousConversation()
+                    } else {
+                        isContinuousModeActive = true
+                        startListening()
+                    }
+                },
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isListening) Color(0xFFE53935) else Color(0xFF0288D1)
+                    containerColor = when {
+                        isListening -> Color(0xFFE53935)            // Red while hearing you
+                        isContinuousModeActive -> Color(0xFF43A047) // Green when continuous mode is ON
+                        else -> Color(0xFF0288D1)                   // Blue when idle
+                    }
                 ),
                 modifier = Modifier
                     .size(90.dp)
                     .padding(bottom = 20.dp)
             ) {
                 Text(
-                    text = if (isListening) "..." else "MIC",
+                    text = when {
+                        isListening -> "Listening"
+                        isContinuousModeActive -> "Active"
+                        else -> "MIC"
+                    },
                     color = Color.White,
-                    fontSize = 16.sp
+                    fontSize = 14.sp
                 )
             }
         }
     }
 }
+
