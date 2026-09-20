@@ -22,12 +22,27 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
+        <!-- Background Listening Service -->
         <service
             android:name=".JarvisService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Auto Unlock Accessibility Service -->
+        <service
+            android:name=".JarvisAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Siri-Style Transparent Floating Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -43,4 +58,3 @@
     </application>
 
 </manifest>
-
