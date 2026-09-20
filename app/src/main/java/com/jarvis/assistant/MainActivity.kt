@@ -338,6 +338,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .replace("please", "")
                     .trim()
 
+                contactQuery = contactQuery
+                    .removeSuffix(" on")
+                    .removeSuffix(" via")
+                    .removeSuffix(" in")
+                    .removePrefix("to ")
+                    .trim()
+
                 if (contactQuery.isNotEmpty() && messageContent.isNotEmpty()) {
                     val contact = getContactPhone(contactQuery)
                     if (contact != null) {
@@ -459,7 +466,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         for (modelName in candidateModels) {
             try {
                 val url = "https://api.groq.com/openai/v1/chat/completions"
-                val payload = JSONObject()
+                val yload = JSONObject()
                 payload.put("model", modelName)
 
                 val messages = JSONArray()
