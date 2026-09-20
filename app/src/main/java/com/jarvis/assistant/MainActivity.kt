@@ -343,7 +343,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tts.setPitch(0.85f)
         } else {
             tts.language = Locale.UK
-            tts.setPitch(0.78f)
+            tts.setPitch(0.70f)
         }
 
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -396,10 +396,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.UK
             try {
-                tts.voices?.firstOrNull { it.name.lowercase().contains("en-gb-x-rjs") || it.name.lowercase().contains("male") }?.let { tts.voice = it }
+                val maleVoice = tts.voices?.firstOrNull { voice ->
+                    val name = voice.name.lowercase()
+                    val features = voice.features?.map { it.lowercase() } ?: emptyList()
+                    (name.contains("male") || features.contains("male") || name.contains("en-gb-x-rjs") || name.contains("en-gb-x-gba")) &&
+                    !name.contains("female")
+                }
+                if (maleVoice != null) {
+                    tts.voice = maleVoice
+                }
             } catch (e: Exception) {}
-            tts.setPitch(0.78f)
-            tts.setSpeechRate(0.98f)
+            tts.setPitch(0.70f)
+            tts.setSpeechRate(0.95f)
         }
     }
 
