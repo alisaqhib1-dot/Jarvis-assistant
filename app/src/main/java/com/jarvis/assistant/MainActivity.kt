@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -266,20 +267,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         when {
+            // UNLOCK COMMAND
             cleanQuery.contains("unlock") -> {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
                     val reply = "Unlocking your device now, sir."
                     assistantResponse = reply
                     speakAndExecute(reply) {
-                        // Request Android to dismiss lock screen keyguard and reveal PIN
                         val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             km.requestDismissKeyguard(this@MainActivity, null)
                         }
-
                         finish()
-
                         Handler(Looper.getMainLooper()).postDelayed({
                             service.unlockDevice()
                         }, 500)
@@ -291,6 +290,57 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // YOUTUBE PLAY COMMAND
+            cleanQuery.startsWith("play ") -> {
+                val songQuery = cleanQuery
+                    .removePrefix("play ")
+                    .removeSuffix("on youtube")
+                    .trim()
+
+                val reply = "Playing $songQuery on YouTube, sir."
+                assistantResponse = reply
+                speakAndExecute(reply) {
+                    val ytIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube://www.youtube.com/results?search_query=$songQuery")).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    try {
+                        startActivity(ytIntent)
+                    } catch (e: Exception) {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$songQuery")))
+                    }
+
+                    // Auto-click the first result video after the page loads
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        JarvisAccessibilityService.instance?.clickFirstVisibleResult()
+                    }, 2200)
+
+                    dismissOverlay()
+                }
+            }
+
+            // CAMERA / TAKE PHOTO COMMAND
+            cleanQuery.contains("open camera") || cleanQuery.contains("take a picture") || cleanQuery.contains("take a photo") -> {
+                val isCapture = cleanQuery.contains("take a")
+                val reply = if (isCapture) "Taking a photo now, sir." else "Opening camera, sir."
+                assistantResponse = reply
+                speakAndExecute(reply) {
+                    val cameraIntent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(cameraIntent)
+
+                    if (isCapture) {
+                        // Taps shutter button after camera opens (middle bottom area)
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            JarvisAccessibilityService.instance?.tap(540f, 2100f)
+                        }, 2000)
+                    }
+
+                    dismissOverlay()
+                }
+            }
+
+            // GENERIC APP LAUNCH
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery
                     .removePrefix("open ")
@@ -307,6 +357,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakAndListen(reply)
             }
 
+            // CALL COMMAND
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
                 val contactTarget = cleanQuery
                     .removePrefix("call ")
@@ -341,6 +392,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // GROQ AI FALLBACK
             else -> {
                 assistantResponse = "Thinking..."
                 CoroutineScope(Dispatchers.IO).launch {
@@ -458,54 +510,4 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             contentAlignment = Alignment.BottomCenter
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 28.dp)
-                    .background(
-                        color = Color(0xF2101827),
-                        shape = RoundedCornerShape(32.dp)
-                    )
-                    .clickable(enabled = false) {}
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(
-                            color = if (isListening) Color(0xFF00E5FF) else Color(0xFF1E88E5),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (isListening) "●" else "J",
-                        color = Color.White,
-                        fontSize = 18.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = recognizedText,
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (assistantResponse.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = assistantResponse,
-                        color = Color(0xFF80D8FF),
-                        fontSize = 15.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        }
-    }
-}
+          
