@@ -18,10 +18,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,10 +52,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     // PASTE YOUR REAL GROQ API KEY HERE (keep the double quotes)
     private val groqApiKey = "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"
 
-    private var recognizedText by mutableStateOf("Press MIC to start conversation")
+    private var recognizedText by mutableStateOf("Listening...")
     private var assistantResponse by mutableStateOf("")
     private var isListening by mutableStateOf(false)
-    private var isContinuousModeActive by mutableStateOf(false)
+    private var isContinuousModeActive by mutableStateOf(true)
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -73,7 +73,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         tts = TextToSpeech(this, this)
 
-        // Launch the Background Foreground Service
         val serviceIntent = Intent(this, JarvisService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
@@ -81,7 +80,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             startService(serviceIntent)
         }
 
-        // Prepare required runtime permissions
         val requiredPermissionsList = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CALL_PHONE,
@@ -103,7 +101,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         setContent {
-            JarvisScreen()
+            JarvisSiriOverlay()
         }
     }
 
@@ -147,6 +145,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
+            startListening()
         }
     }
 
@@ -168,15 +167,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun stopContinuousConversation() {
+    private fun dismissOverlay() {
         isContinuousModeActive = false
         isListening = false
         mainHandler.post {
             speechRecognizer.stopListening()
         }
-        val reply = "Standing by, sir."
-        assistantResponse = reply
-        tts.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "STANDBY_ID")
+        finish() // Closes the floating pop-up
     }
 
     private fun openAppByName(appName: String): Boolean {
@@ -240,8 +237,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun processCommand(query: String) {
         val cleanQuery = query.lowercase().trim()
 
-        if (cleanQuery in listOf("stop", "exit", "goodbye", "bye", "cancel", "that's all", "sleep")) {
-            stopContinuousConversation()
+        if (cleanQuery in listOf("stop", "exit", "goodbye", "bye", "cancel", "that's all", "dismiss", "close")) {
+            dismissOverlay()
             return
         }
 
@@ -317,7 +314,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are JARVIS, Tony Stark's AI assistant. Keep responses concise, articulate, and natural.")
+                        put("content", "You are JARVIS, Tony Stark's AI assistant. Keep responses very brief, articulate, and natural (1 to 2 sentences max).")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -404,74 +401,67 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     @Composable
-    fun JarvisScreen() {
-        Column(
+    fun JarvisSiriOverlay() {
+        // Fullscreen transparent container: tapping empty area dismisses the overlay
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0B1325))
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+                .background(Color.Transparent)
+                .clickable { dismissOverlay() },
+            contentAlignment = Alignment.BottomCenter
         ) {
-            Text(
-                text = "JARVIS",
-                color = Color(0xFF64B5F6),
-                fontSize = 28.sp,
-                modifier = Modifier.padding(top = 40.dp)
-            )
-
+            // Siri / Assistant Bottom Floating Sheet
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 28.dp)
+                    .background(
+                        color = Color(0xF2101827), // Sleek semi-transparent dark acrylic
+                        shape = RoundedCornerShape(32.dp)
+                    )
+                    .clickable(enabled = false) {} // Prevent click-through inside the card
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Glowing Arc Reactor Orb Indicator
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = if (isListening) Color(0xFF00E5FF) else Color(0xFF1E88E5),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isListening) "●" else "J",
+                        color = Color.White,
+                        fontSize = 18.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // User query / Listening status
                 Text(
                     text = recognizedText,
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
+                // JARVIS response
                 if (assistantResponse.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = assistantResponse,
-                        color = Color(0xFFB0BEC5),
-                        fontSize = 16.sp,
-                        textAlign = TextAlign.Center
+                        color = Color(0xFF80D8FF),
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-            }
-
-            Button(
-                onClick = {
-                    if (isContinuousModeActive) {
-                        stopContinuousConversation()
-                    } else {
-                        isContinuousModeActive = true
-                        startListening()
-                    }
-                },
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = when {
-                        isListening -> Color(0xFFE53935)
-                        isContinuousModeActive -> Color(0xFF43A047)
-                        else -> Color(0xFF0288D1)
-                    }
-                ),
-                modifier = Modifier
-                    .size(90.dp)
-                    .padding(bottom = 20.dp)
-            ) {
-                Text(
-                    text = when {
-                        isListening -> "Listening"
-                        isContinuousModeActive -> "Active"
-                        else -> "MIC"
-                    },
-                    color = Color.White,
-                    fontSize = 14.sp
-                )
             }
         }
     }
