@@ -56,9 +56,6 @@ class JarvisAccessibilityService : AccessibilityService() {
         }, null)
     }
 
-    /**
-     * Clicks the first video result in YouTube
-     */
     fun clickFirstVisibleResult() {
         val root = rootInActiveWindow ?: return
         val clickableNode = findFirstClickableItem(root)
@@ -81,9 +78,6 @@ class JarvisAccessibilityService : AccessibilityService() {
         return null
     }
 
-    /**
-     * Locates WhatsApp's native send button by content description and clicks it
-     */
     fun clickWhatsAppSend() {
         val root = rootInActiveWindow ?: return
         val sendNodes = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
@@ -92,7 +86,6 @@ class JarvisAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Fallback: search by content description ("Send")
         val sendByDesc = root.findAccessibilityNodeInfosByText("Send")
         if (!sendByDesc.isNullOrEmpty()) {
             for (node in sendByDesc) {
