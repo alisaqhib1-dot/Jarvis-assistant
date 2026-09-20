@@ -1,6 +1,7 @@
 package com.jarvis.assistant
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -271,10 +272,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val reply = "Unlocking your device now, sir."
                     assistantResponse = reply
                     speakAndExecute(reply) {
+                        // Request Android to dismiss lock screen keyguard and reveal PIN
+                        val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            km.requestDismissKeyguard(this@MainActivity, null)
+                        }
+
                         finish()
+
                         Handler(Looper.getMainLooper()).postDelayed({
                             service.unlockDevice()
-                        }, 400)
+                        }, 500)
                     }
                 } else {
                     val reply = "Please enable Jarvis in your Accessibility settings first, sir."
