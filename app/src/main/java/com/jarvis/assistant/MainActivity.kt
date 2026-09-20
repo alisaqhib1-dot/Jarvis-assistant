@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -72,12 +73,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         tts = TextToSpeech(this, this)
 
-        val requiredPermissions = arrayOf(
+        // Launch the Background Foreground Service
+        val serviceIntent = Intent(this, JarvisService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+
+        // Prepare required runtime permissions
+        val requiredPermissionsList = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_CONTACTS
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requiredPermissionsList.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
+        val requiredPermissions = requiredPermissionsList.toTypedArray()
         val missing = requiredPermissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -113,7 +127,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
                 override fun onError(error: Int) {
                     isListening = false
-                    // If no speech detected in continuous mode, retry listening after brief delay
                     if (isContinuousModeActive && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
                         mainHandler.postDelayed({
                             if (isContinuousModeActive) startListening()
@@ -227,14 +240,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun processCommand(query: String) {
         val cleanQuery = query.lowercase().trim()
 
-        // 1. Exit Continuous Mode Commands
         if (cleanQuery in listOf("stop", "exit", "goodbye", "bye", "cancel", "that's all", "sleep")) {
             stopContinuousConversation()
             return
         }
 
         when {
-            // 2. App Launching Commands
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery
                     .removePrefix("open ")
@@ -251,7 +262,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakAndListen(reply)
             }
 
-            // 3. Phone Call Commands
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
                 val contactTarget = cleanQuery
                     .removePrefix("call ")
@@ -265,9 +275,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     return
                 }
 
-                // If user dictates digits directly
                 if (contactTarget.replace("[\\s-]".toRegex(), "").all { it.isDigit() }) {
-                    isContinuousModeActive = false // Pause continuous mode during phone call
+                    isContinuousModeActive = false
                     val reply = "Calling $contactTarget now, sir."
                     assistantResponse = reply
                     speakAndExecute(reply) { makePhoneCall(contactTarget) }
@@ -287,7 +296,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // 4. General Groq AI Response
             else -> {
                 assistantResponse = "Thinking..."
                 CoroutineScope(Dispatchers.IO).launch {
@@ -309,7 +317,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are JARVIS, Tony Stark's AI assistant. Give very concise, witty, and helpful responses in 1-2 sentences.")
+                        put("content", "You are JARVIS, Tony Stark's AI assistant. Keep responses concise, articulate, and natural.")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -348,7 +356,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tts.setPitch(0.92f)
             tts.setSpeechRate(1.05f)
 
-            // Listen for when TTS finishes speaking
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
 
@@ -356,7 +363,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (utteranceId == "JARVIS_CONTINUOUS" && isContinuousModeActive) {
                         mainHandler.postDelayed({
                             startListening()
-                        }, 250) // Small pause before turning mic back on
+                        }, 250)
                     }
                 }
 
@@ -366,12 +373,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // Speaks text and immediately listens again when done
     private fun speakAndListen(text: String) {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_CONTINUOUS")
     }
 
-    // Speaks text, then executes an action (like dialing a call)
     private fun speakAndExecute(text: String, action: () -> Unit) {
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
@@ -449,9 +454,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = when {
-                        isListening -> Color(0xFFE53935)            // Red while hearing you
-                        isContinuousModeActive -> Color(0xFF43A047) // Green when continuous mode is ON
-                        else -> Color(0xFF0288D1)                   // Blue when idle
+                        isListening -> Color(0xFFE53935)
+                        isContinuousModeActive -> Color(0xFF43A047)
+                        else -> Color(0xFF0288D1)
                     }
                 ),
                 modifier = Modifier
@@ -471,4 +476,3 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 }
-
