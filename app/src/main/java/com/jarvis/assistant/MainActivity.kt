@@ -217,6 +217,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             val response = client.newCall(request).execute()
             val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return "Groq Error ${response.code}: $responseBody"
+            }
+
             val json = JSONObject(responseBody)
             json.getJSONArray("choices")
                 .getJSONObject(0)
