@@ -331,7 +331,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             else -> {
                 responseTextView.text = "Processing..."
                 CoroutineScope(Dispatchers.IO).launch {
-                    val answer = callGroq(query)
+                    val answer = callGroqWithFallback(query)
                     withContext(Dispatchers.Main) { respond(answer) }
                 }
             }
@@ -376,48 +376,52 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "TTS_ID")
     }
 
-    private fun callGroq(prompt: String): String {
-        return try {
-            val url = "https://api.groq.com/openai/v1/chat/completions"
-            val payload = JSONObject()
-            payload.put("model", "llama-3.1-8b-instant")
+    private fun callGroqWithFallback(prompt: String): String {
+        // Models currently active on GroqCloud
+        val candidateModels = listOf("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b")
+        var lastErr = ""
 
-            val messages = JSONArray()
-            val sysMsg = JSONObject()
-            sysMsg.put("role", "system")
-            sysMsg.put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
-            messages.put(sysMsg)
+        for (modelName in candidateModels) {
+            try {
+                val url = "https://api.groq.com/openai/v1/chat/completions"
+                val payload = JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "system")
+                            put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
+                        })
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", prompt)
+                        })
+                    })
+                }
 
-            val userMsg = JSONObject()
-            userMsg.put("role", "user")
-            userMsg.put("content", prompt)
-            messages.put(userMsg)
+                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer ${groqApiKey.trim()}")
+                    .post(body)
+                    .build()
 
-            payload.put("messages", messages)
+                val response = client.newCall(request).execute()
+                val responseData = response.body?.string() ?: ""
 
-            val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("Authorization", "Bearer ${groqApiKey.trim()}")
-                .post(body)
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseData = response.body?.string() ?: ""
-
-            if (!response.isSuccessful) {
-                return "Groq Error code ${response.code}: $responseData"
+                if (response.isSuccessful) {
+                    val jsonRes = JSONObject(responseData)
+                    return jsonRes.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                } else {
+                    lastErr = "Groq Error code ${response.code}: $responseData"
+                }
+            } catch (e: Exception) {
+                lastErr = "Connection error: ${e.localizedMessage ?: "Unknown"}, Boss."
             }
-
-            val jsonRes = JSONObject(responseData)
-            jsonRes.getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-        } catch (e: Exception) {
-            "Connection error: ${e.localizedMessage ?: "Unknown"}, Boss."
         }
+        return lastErr
     }
 
     override fun onInit(status: Int) {
