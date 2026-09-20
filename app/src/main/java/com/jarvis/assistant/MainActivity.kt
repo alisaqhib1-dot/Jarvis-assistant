@@ -309,7 +309,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 })
             }
 
-            // WhatsApp Messaging (Flexible matching)
+            // WhatsApp Messaging
             q.contains("whatsapp") || q.contains("message") || q.contains("msg") || q.contains("text ") -> {
                 var messageContent = ""
                 var contactQuery = ""
@@ -324,7 +324,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     messageContent = parts[1]
                 }
 
-                // Clean filler words from the target contact name
                 contactQuery = contactQuery
                     .replace("send a message to", "")
                     .replace("send message to", "")
@@ -356,12 +355,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         respond("Could not find $contactQuery in contacts, Sir Yuno.")
                     }
                 } else {
-                    // Fallback to Groq if the structure is incomplete
                     executeGroq(query)
                 }
             }
 
-            // Phone Calls (Matches direct & conversational phrasing)
+            // Phone Calls
             q.contains("call ") || q.contains("dial ") -> {
                 val target = when {
                     q.contains("call ") -> q.substringAfter("call ")
@@ -461,5 +459,67 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         for (modelName in candidateModels) {
             try {
                 val url = "https://api.groq.com/openai/v1/chat/completions"
-                val payload = JSONObject().apply {
-                    put("model", modelNa
+                val payload = JSONObject()
+                payload.put("model", modelName)
+                
+                val messages = JSONArray()
+                val sys = JSONObject()
+                sys.put("role", "system")
+                                        sys.put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
+                    })
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", prompt)
+                    })
+                })
+
+                payload.put("messages", messages)
+
+                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer ${groqApiKey.trim()}")
+                    .post(body)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val responseData = response.body?.string() ?: ""
+
+                if (response.isSuccessful) {
+                    val jsonRes = JSONObject(responseData)
+                    return jsonRes.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                } else {
+                    lastErr = "Groq Error code ${response.code}: $responseData"
+                }
+            } catch (e: Exception) {
+                lastErr = "Connection error: ${e.localizedMessage ?: "Unknown"}, Boss."
+            }
+        }
+        return lastErr
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts.language = Locale.UK
+            try {
+                val maleVoice = tts.voices?.firstOrNull { v ->
+                    val n = v.name.lowercase()
+                    (n.contains("en-gb-x-rjs") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) && !n.contains("female")
+                }
+                if (maleVoice != null) tts.voice = maleVoice
+            } catch (e: Exception) {}
+            tts.setPitch(0.58f)
+            tts.setSpeechRate(0.95f)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isContinuousModeActive = false
+        if (::speechRecognizer.isInitialized) speechRecognizer.destroy()
+        if (::tts.isInitialized) { tts.stop(); tts.shutdown() }
+    }
+}
