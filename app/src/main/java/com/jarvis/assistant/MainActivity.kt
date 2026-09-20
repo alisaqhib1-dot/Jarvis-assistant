@@ -77,7 +77,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         setupSimpleUi()
-
         tts = TextToSpeech(this, this)
 
         val serviceIntent = Intent(this, JarvisService::class.java)
@@ -130,7 +129,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         recognizedTextView = TextView(this).apply {
-            text = "Listening..."
+            text = "Listening, Sir Yuno..."
             setTextColor(Color.WHITE)
             textSize = 17f
             gravity = Gravity.CENTER
@@ -296,16 +295,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         when {
             // FLASHLIGHT CONTROLS
-            cleanQuery.contains("flashlight on") || cleanQuery.contains("turn on the torch") || cleanQuery.contains("torch on") || cleanQuery.contains("turn on flashlight") -> {
+            cleanQuery.contains("flashlight on") || cleanQuery.contains("torch on") || cleanQuery.contains("turn on flashlight") || cleanQuery.contains("turn on torch") -> {
                 val success = toggleFlashlight(true)
-                val reply = if (success) "Flashlight turned on, sir." else "Unable to activate flashlight, sir."
+                val reply = if (success) "Flashlight activated, Boss." else "Unable to activate flashlight, Sir Yuno."
                 responseTextView.text = reply
                 speakAndListen(reply)
             }
 
-            cleanQuery.contains("flashlight off") || cleanQuery.contains("turn off the torch") || cleanQuery.contains("torch off") || cleanQuery.contains("turn off flashlight") -> {
+            cleanQuery.contains("flashlight off") || cleanQuery.contains("torch off") || cleanQuery.contains("turn off flashlight") || cleanQuery.contains("turn off torch") -> {
                 val success = toggleFlashlight(false)
-                val reply = if (success) "Flashlight turned off, sir." else "Unable to deactivate flashlight, sir."
+                val reply = if (success) "Flashlight turned off, Boss." else "Unable to deactivate flashlight, Sir Yuno."
                 responseTextView.text = reply
                 speakAndListen(reply)
             }
@@ -314,7 +313,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             cleanQuery.contains("unlock") -> {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
-                    val reply = "Unlocking your device now, sir."
+                    val reply = "Unlocking your device now, Sir Yuno."
                     responseTextView.text = reply
                     speakAndExecute(reply) {
                         val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
@@ -327,7 +326,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }, 500)
                     }
                 } else {
-                    val reply = "Please enable Jarvis in Accessibility settings first, sir."
+                    val reply = "Please enable ACRUX in Accessibility settings first, Boss."
                     responseTextView.text = reply
                     speakAndListen(reply)
                 }
@@ -358,7 +357,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         cleanNum = "+91$cleanNum"
                     }
 
-                    val reply = "Sending message to $contactName on WhatsApp, sir."
+                    val reply = "Sending message to $contactName on WhatsApp, Boss."
                     responseTextView.text = reply
                     speakAndExecute(reply) {
                         try {
@@ -376,11 +375,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
                             dismissOverlay()
                         } catch (e: Exception) {
-                            responseTextView.text = "Could not open WhatsApp, sir."
+                            responseTextView.text = "Could not open WhatsApp, Sir Yuno."
                         }
                     }
                 } else {
-                    val reply = "I couldn't identify the contact in your address book, sir."
+                    val reply = "I couldn't identify the contact in your address book, Sir Yuno."
                     responseTextView.text = reply
                     speakAndListen(reply)
                 }
@@ -393,7 +392,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .removeSuffix("on youtube")
                     .trim()
 
-                val reply = "Playing $songQuery on YouTube, sir."
+                val reply = "Playing $songQuery on YouTube, Boss."
                 responseTextView.text = reply
                 speakAndExecute(reply) {
                     val ytIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube://www.youtube.com/results?search_query=$songQuery")).apply {
@@ -416,7 +415,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             // CAMERA / TAKE PHOTO COMMAND
             cleanQuery.contains("open camera") || cleanQuery.contains("take a picture") || cleanQuery.contains("take a photo") -> {
                 val isCapture = cleanQuery.contains("take a")
-                val reply = if (isCapture) "Taking a photo now, sir." else "Opening camera, sir."
+                val reply = if (isCapture) "Taking a photo now, Sir Yuno." else "Opening camera, Boss."
                 responseTextView.text = reply
                 speakAndExecute(reply) {
                     val cameraIntent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
@@ -438,7 +437,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery.removePrefix("open ").removePrefix("launch ").trim()
                 val success = openAppByName(appTarget)
-                val reply = if (success) "Opening $appTarget, sir." else "I could not find $appTarget on your device, sir."
+                val reply = if (success) "Opening $appTarget, Sir Yuno." else "I could not find $appTarget on your device, Boss."
                 responseTextView.text = reply
                 speakAndListen(reply)
             }
@@ -447,7 +446,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
                 val contactTarget = cleanQuery.removePrefix("call ").removePrefix("dial ").trim()
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-                    val reply = "Call permission has not been granted, sir."
+                    val reply = "Call permission has not been granted, Boss."
                     responseTextView.text = reply
                     speakAndListen(reply)
                     return
@@ -455,7 +454,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
                 if (contactTarget.replace("[\\s-]".toRegex(), "").all { it.isDigit() }) {
                     isContinuousModeActive = false
-                    val reply = "Calling $contactTarget now, sir."
+                    val reply = "Calling $contactTarget now, Sir Yuno."
                     responseTextView.text = reply
                     speakAndExecute(reply) { makePhoneCall(contactTarget) }
                 } else {
@@ -463,11 +462,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (contactMatch != null) {
                         isContinuousModeActive = false
                         val (name, number) = contactMatch
-                        val reply = "Calling $name now, sir."
+                        val reply = "Calling $name now, Boss."
                         responseTextView.text = reply
                         speakAndExecute(reply) { makePhoneCall(number) }
                     } else {
-                        val reply = "I could not find $contactTarget in your contacts, sir."
+                        val reply = "I could not find $contactTarget in your contacts, Sir Yuno."
                         responseTextView.text = reply
                         speakAndListen(reply)
                     }
@@ -476,7 +475,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             // GROQ AI FALLBACK
             else -> {
-                responseTextView.text = "Thinking..."
+                responseTextView.text = "Processing..."
                 CoroutineScope(Dispatchers.IO).launch {
                     val answer = callGroqApi(query)
                     withContext(Dispatchers.Main) {
@@ -489,5 +488,4 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun findContactAndMessage(input: String): Triple<String, String, String>? {
-        val delimiters = listOf(" saying ", " that ", " msg ", " message ")
-        for (delimit
+        val delimiters = listOf(" saying
