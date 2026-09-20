@@ -29,7 +29,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun unlockDevice() {
         val handler = Handler(Looper.getMainLooper())
 
-        // Fast upward flick (120ms duration) to satisfy realme UI's lock-screen threshold
+        // Fast upward fling to trigger the keypad
         val swipePath = Path().apply {
             moveTo(540f, 1750f)
             lineTo(540f, 250f)
@@ -43,11 +43,11 @@ class JarvisAccessibilityService : AccessibilityService() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
 
-                // Keypad should now be open; tap digits: 9 - 0 - 4 - 6
-                handler.postDelayed({ tap(810f, 1750f) }, 600)   // 9
-                handler.postDelayed({ tap(540f, 1950f) }, 900)   // 0
-                handler.postDelayed({ tap(270f, 1550f) }, 1200)  // 4
-                handler.postDelayed({ tap(810f, 1550f) }, 1500)  // 6
+                // PIN: 9 - 0 - 4 - 6 using your exact hardware coordinates
+                handler.postDelayed({ tap(800f, 1606f) }, 600)  // Digit 9
+                handler.postDelayed({ tap(558f, 1836f) }, 900)  // Digit 0
+                handler.postDelayed({ tap(265f, 1390f) }, 1200) // Digit 4
+                handler.postDelayed({ tap(842f, 1390f) }, 1500) // Digit 6
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
