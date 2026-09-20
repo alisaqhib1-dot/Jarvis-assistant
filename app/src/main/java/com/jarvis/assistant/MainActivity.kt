@@ -20,6 +20,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -39,12 +40,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var speechRecognizer: SpeechRecognizer
     private lateinit var tts: TextToSpeech
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
 
     private val groqApiKey = "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"
 
@@ -339,22 +344,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val isHindi = text.any { it in '\u0900'..'\u097F' }
         try {
             if (isHindi) {
-                tts.language = Locale("hi", "IN")
-                tts.voices?.firstOrNull { 
-                    it.locale.language == "hi" && (it.name.contains("male") || it.name.contains("hi-in-x-hie") || it.name.contains("hi-in-x-hid")) 
-                }?.let { tts.voice = it }
-                tts.setPitch(0.75f)
+                val hiVoice = tts.voices?.firstOrNull { v ->
+                    v.locale.language == "hi" && !v.name.lowercase().contains("female")
+                }
+                if (hiVoice != null) tts.voice = hiVoice
+                tts.setPitch(0.70f)
             } else {
-                tts.language = Locale.UK
-                val targetVoice = tts.voices?.firstOrNull { v ->
+                val maleVoice = tts.voices?.firstOrNull { v ->
                     val n = v.name.lowercase()
-                    (n.contains("en-gb-x-rjs") || n.contains("en-gb-x-gba") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) &&
-                    !n.contains("female")
+                    (n.contains("en-gb-x-rjs") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) && !n.contains("female")
                 }
-                if (targetVoice != null) {
-                    tts.voice = targetVoice
-                }
-                tts.setPitch(0.65f)
+                if (maleVoice != null) tts.voice = maleVoice
+                // 0.58f physically forces a deep baritone resonance
+                tts.setPitch(0.58f)
             }
         } catch (e: Exception) {}
 
@@ -377,12 +379,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun callGroq(prompt: String): String {
         return try {
-            val payload = JSONObject().apply {
+            val endpoint = "https://api.groq.com/openai/v1/chat/completions"
+            val jsonBody = JSONObject().apply {
                 put("model", "llama-3.3-70b-versatile")
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", "You are ACRUX, a tactical AI assistant. Answer concisely in 1-2 sentences. Speak naturally in whatever language the user speaks. Always address the user respectfully as 'Sir Yuno' or 'Boss'.")
+                        put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -390,19 +393,28 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     })
                 })
             }
+
             val request = Request.Builder()
-                .url("https://api.groq.com/openai/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $groqApiKey")
-                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .url(endpoint)
+                .addHeader("Authorization", "Bearer ${groqApiKey.trim()}")
+                .addHeader("Content-Type", "application/json")
+                .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
+
             val res = client.newCall(request).execute()
-            val body = res.body?.string() ?: ""
+            val resString = res.body?.string() ?: ""
+
             if (!res.isSuccessful) {
                 return "Groq Error code ${res.code}, Boss."
             }
-            JSONObject(body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+
+            val jsonRes = JSONObject(resString)
+            jsonRes.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content")
         } catch (e: Exception) {
-            "Network error: ${e.message ?: "unknown"}, Boss."
+            "Connection failed: ${e.localizedMessage ?: "Unknown error"}, Boss."
         }
     }
 
@@ -412,14 +424,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             try {
                 val maleVoice = tts.voices?.firstOrNull { v ->
                     val n = v.name.lowercase()
-                    (n.contains("en-gb-x-rjs") || n.contains("en-gb-x-gba") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) &&
-                    !n.contains("female")
+                    (n.contains("en-gb-x-rjs") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) && !n.contains("female")
                 }
-                if (maleVoice != null) {
-                    tts.voice = maleVoice
-                }
+                if (maleVoice != null) tts.voice = maleVoice
             } catch (e: Exception) {}
-            tts.setPitch(0.65f)
+            tts.setPitch(0.58f)
             tts.setSpeechRate(0.95f)
         }
     }
