@@ -29,25 +29,25 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun unlockDevice() {
         val handler = Handler(Looper.getMainLooper())
 
-        // Start higher up (y: 1600) to clear realme's gesture nav pill, dragging straight up to y: 350
+        // Fast upward flick (120ms duration) to satisfy realme UI's lock-screen threshold
         val swipePath = Path().apply {
-            moveTo(540f, 1600f)
-            lineTo(540f, 350f)
+            moveTo(540f, 1750f)
+            lineTo(540f, 250f)
         }
 
         val swipeGesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(swipePath, 100, 350))
+            .addStroke(GestureDescription.StrokeDescription(swipePath, 0, 120))
             .build()
 
         dispatchGesture(swipeGesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
 
-                // Give the keypad 800ms to open, then tap: 9 - 0 - 4 - 6
-                handler.postDelayed({ tap(810f, 1750f) }, 800)
-                handler.postDelayed({ tap(540f, 1950f) }, 1100)
-                handler.postDelayed({ tap(270f, 1550f) }, 1400)
-                handler.postDelayed({ tap(810f, 1550f) }, 1700)
+                // Keypad should now be open; tap digits: 9 - 0 - 4 - 6
+                handler.postDelayed({ tap(810f, 1750f) }, 600)   // 9
+                handler.postDelayed({ tap(540f, 1950f) }, 900)   // 0
+                handler.postDelayed({ tap(270f, 1550f) }, 1200)  // 4
+                handler.postDelayed({ tap(810f, 1550f) }, 1500)  // 6
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
@@ -61,7 +61,7 @@ class JarvisAccessibilityService : AccessibilityService() {
             moveTo(x, y)
         }
         val tapGesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(tapPath, 0, 100))
+            .addStroke(GestureDescription.StrokeDescription(tapPath, 0, 80))
             .build()
         dispatchGesture(tapGesture, null, null)
     }
