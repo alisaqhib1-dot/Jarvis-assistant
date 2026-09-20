@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         .build()
 
     // PASTE YOUR GROQ API KEY INSIDE THE QUOTES BELOW
-    private val groqApiKey = "PASTE_YOUR_GROQ_KEY_HERE"
+    private val groqApiKey ="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"
 
     private lateinit var recognizedTextView: TextView
     private lateinit var responseTextView: TextView
