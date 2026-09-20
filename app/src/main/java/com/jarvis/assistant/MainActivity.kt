@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,10 +15,11 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
-import com.jarvis.assistant.R
 import java.util.Locale
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
@@ -33,14 +35,50 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
         deviceController = DeviceController(this)
 
-        tvStatus = findViewById(R.id.tvStatus)
-        etInput = findViewById(R.id.etInput)
-        btnSpeak = findViewById(R.id.btnSpeak)
-        btnSend = findViewById(R.id.btnSend)
+        // Build UI programmatically to avoid R resource linking errors
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 48, 48, 48)
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#121212"))
+        }
+
+        tvStatus = TextView(this).apply {
+            text = "ACRUX Online"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 40)
+        }
+        rootLayout.addView(tvStatus)
+
+        etInput = EditText(this).apply {
+            hint = "Type a command..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setPadding(30, 30, 30, 30)
+        }
+        rootLayout.addView(etInput)
+
+        btnSend = Button(this).apply {
+            text = "Execute Command"
+            setBackgroundColor(Color.parseColor("#333333"))
+            setTextColor(Color.WHITE)
+        }
+        rootLayout.addView(btnSend)
+
+        btnSpeak = Button(this).apply {
+            text = "Voice Input"
+            setBackgroundColor(Color.parseColor("#007ACC"))
+            setTextColor(Color.WHITE)
+        }
+        rootLayout.addView(btnSpeak)
+
+        setContentView(rootLayout)
 
         tts = TextToSpeech(this, this)
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
@@ -98,7 +136,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 tvStatus.text = "Processing..."
             }
             override fun onError(error: Int) {
-                tvStatus.text = "Tap to speak"
+                tvStatus.text = "Tap Voice Input to speak"
             }
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
