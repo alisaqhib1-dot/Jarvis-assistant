@@ -189,15 +189,46 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun openAppByName(appName: String): Boolean {
         val pm = packageManager
+        val target = appName.lowercase()
+            .replace("please", "")
+            .replace("can you", "")
+            .replace("open", "")
+            .replace("launch", "")
+            .trim()
+
+        val directMap = mapOf(
+            "whatsapp" to "com.whatsapp",
+            "instagram" to "com.instagram.android",
+            "insta" to "com.instagram.android",
+            "youtube" to "com.google.android.youtube",
+            "camera" to "com.android.camera",
+            "chrome" to "com.android.chrome",
+            "settings" to "com.android.settings",
+            "free fire" to "com.dts.freefireth",
+            "freefire" to "com.dts.freefireth"
+        )
+
+        for ((key, pkg) in directMap) {
+            if (target.contains(key)) {
+                val launchIntent = pm.getLaunchIntentForPackage(pkg)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(launchIntent)
+                    return true
+                }
+            }
+        }
+
         val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
         val apps = pm.queryIntentActivities(intent, 0)
-        val target = appName.lowercase().trim()
 
         for (info in apps) {
             val label = info.loadLabel(pm).toString().lowercase().trim()
-            if (label == target || label.contains(target)) {
+            val pkg = info.activityInfo.packageName.lowercase()
+            if (label == target || label.contains(target) || pkg.contains(target)) {
                 val launchIntent = pm.getLaunchIntentForPackage(info.activityInfo.packageName)
                 if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(launchIntent)
                     return true
                 }
@@ -208,10 +239,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun getContactPhone(name: String): Pair<String, String>? {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+        val cleanQuery = name.trim().lowercase()
         val cursor = contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
-            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?", arrayOf("%$name%"), null
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?", arrayOf("%$cleanQuery%"), null
         )
         cursor?.use {
             if (it.moveToFirst()) return Pair(it.getString(0), it.getString(1))
@@ -221,7 +253,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun processCommand(query: String) {
         var q = query.lowercase().trim()
-        q = q.removePrefix("hey acrux").removePrefix("acrux").removePrefix("jarvis").trim()
+        q = q.removePrefix("hey acrux").removePrefix("acrux").removePrefix("hey jarvis").removePrefix("jarvis").trim()
 
         if (q in listOf("stop", "exit", "cancel", "dismiss", "close", "bye")) {
             dismissOverlay()
@@ -269,55 +301,97 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // Camera / Photo
-            q.contains("take a photo") || q.contains("take a picture") || q.contains("camera") -> {
-                val snap = q.contains("take a")
-                respond(if (snap) "Capturing photo, Sir Yuno." else "Opening camera, Boss.", execute = {
+            q.contains("take a photo") || q.contains("take a picture") || q.contains("click a photo") || q.contains("click a picture") -> {
+                respond("Capturing photo, Sir Yuno.", execute = {
                     startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
-                    if (snap) mainHandler.postDelayed({ JarvisAccessibilityService.instance?.tap(540f, 2100f) }, 2000)
+                    mainHandler.postDelayed({ JarvisAccessibilityService.instance?.tap(540f, 2100f) }, 2000)
                     dismissOverlay()
                 })
             }
 
-            // WhatsApp Messaging
-            q.contains("msg ") || q.contains("message ") || q.contains("whatsapp ") -> {
-                val clean = q.replace("send a message to ", "").replace("whatsapp ", "").replace("msg ", "").replace("message ", "").removeSuffix("on whatsapp").removePrefix("to ").trim()
-                val parts = clean.split(" saying ", " that ", limit = 2)
-                val targetName = if (parts.size > 1) parts[0].trim() else clean.substringBefore(" ").trim()
-                val messageText = if (parts.size > 1) parts[1].trim() else clean.substringAfter(" ").trim()
-                val contact = getContactPhone(targetName)
+            // WhatsApp Messaging (Flexible matching)
+            q.contains("whatsapp") || q.contains("message") || q.contains("msg") || q.contains("text ") -> {
+                var messageContent = ""
+                var contactQuery = ""
 
-                if (contact != null) {
-                    var num = contact.second.replace("[^0-9+]".toRegex(), "")
-                    if (!num.startsWith("+") && num.length == 10) num = "+91$num"
-                    respond("Sending message to ${contact.first}, Boss.", execute = {
-                        try {
-                            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$num&text=${URLEncoder.encode(messageText, "UTF-8")}")
-                            startActivity(Intent(Intent.ACTION_VIEW, uri).apply { setPackage("com.whatsapp"); flags = Intent.FLAG_ACTIVITY_NEW_TASK })
-                            mainHandler.postDelayed({ JarvisAccessibilityService.instance?.clickWhatsAppSend() }, 1800)
-                            dismissOverlay()
-                        } catch (e: Exception) { respond("Unable to open WhatsApp, Sir Yuno.") }
-                    })
+                if (q.contains(" saying ")) {
+                    val parts = q.split(" saying ", limit = 2)
+                    contactQuery = parts[0]
+                    messageContent = parts[1]
+                } else if (q.contains(" that ")) {
+                    val parts = q.split(" that ", limit = 2)
+                    contactQuery = parts[0]
+                    messageContent = parts[1]
+                }
+
+                // Clean filler words from the target contact name
+                contactQuery = contactQuery
+                    .replace("send a message to", "")
+                    .replace("send message to", "")
+                    .replace("message to", "")
+                    .replace("message", "")
+                    .replace("msg to", "")
+                    .replace("msg", "")
+                    .replace("whatsapp to", "")
+                    .replace("whatsapp", "")
+                    .replace("text to", "")
+                    .replace("text", "")
+                    .replace("please", "")
+                    .trim()
+
+                if (contactQuery.isNotEmpty() && messageContent.isNotEmpty()) {
+                    val contact = getContactPhone(contactQuery)
+                    if (contact != null) {
+                        var num = contact.second.replace("[^0-9+]".toRegex(), "")
+                        if (!num.startsWith("+") && num.length == 10) num = "+91$num"
+                        respond("Sending message to ${contact.first}, Boss.", execute = {
+                            try {
+                                val uri = Uri.parse("https://api.whatsapp.com/send?phone=$num&text=${URLEncoder.encode(messageContent, "UTF-8")}")
+                                startActivity(Intent(Intent.ACTION_VIEW, uri).apply { setPackage("com.whatsapp"); flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+                                mainHandler.postDelayed({ JarvisAccessibilityService.instance?.clickWhatsAppSend() }, 1800)
+                                dismissOverlay()
+                            } catch (e: Exception) { respond("Unable to open WhatsApp, Sir Yuno.") }
+                        })
+                    } else {
+                        respond("Could not find $contactQuery in contacts, Sir Yuno.")
+                    }
                 } else {
-                    respond("Could not find $targetName in contacts, Sir Yuno.")
+                    // Fallback to Groq if the structure is incomplete
+                    executeGroq(query)
                 }
             }
 
-            // Phone Calls
-            q.startsWith("call ") || q.startsWith("dial ") -> {
-                val target = q.removePrefix("call ").removePrefix("dial ").trim()
+            // Phone Calls (Matches direct & conversational phrasing)
+            q.contains("call ") || q.contains("dial ") -> {
+                val target = when {
+                    q.contains("call ") -> q.substringAfter("call ")
+                    else -> q.substringAfter("dial ")
+                }
+                .replace("on my phone", "")
+                .replace("please", "")
+                .replace("for me", "")
+                .trim()
+
                 val contact = getContactPhone(target)
                 if (contact != null) {
                     respond("Calling ${contact.first}, Boss.", execute = {
-                        startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:${contact.second}")))
+                        startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:${contact.second}")).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        })
+                        dismissOverlay()
                     })
                 } else {
                     respond("Could not find $target in contacts, Sir Yuno.")
                 }
             }
 
-            // Open App
-            q.startsWith("open ") || q.startsWith("launch ") -> {
-                val app = q.removePrefix("open ").removePrefix("launch ").trim()
+            // App Launching
+            q.contains("open ") || q.contains("launch ") -> {
+                val app = when {
+                    q.contains("open ") -> q.substringAfter("open ")
+                    else -> q.substringAfter("launch ")
+                }.trim()
+
                 val success = openAppByName(app)
                 if (success) {
                     respond("Opening $app, Sir Yuno.")
@@ -329,12 +403,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             // Groq AI Fallback
             else -> {
-                responseTextView.text = "Processing..."
-                CoroutineScope(Dispatchers.IO).launch {
-                    val answer = callGroqWithFallback(query)
-                    withContext(Dispatchers.Main) { respond(answer) }
-                }
+                executeGroq(query)
             }
+        }
+    }
+
+    private fun executeGroq(query: String) {
+        responseTextView.text = "Processing..."
+        CoroutineScope(Dispatchers.IO).launch {
+            val answer = callGroqWithFallback(query)
+            withContext(Dispatchers.Main) { respond(answer) }
         }
     }
 
@@ -377,7 +455,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun callGroqWithFallback(prompt: String): String {
-        // Models currently active on GroqCloud
         val candidateModels = listOf("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b")
         var lastErr = ""
 
@@ -385,64 +462,4 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             try {
                 val url = "https://api.groq.com/openai/v1/chat/completions"
                 val payload = JSONObject().apply {
-                    put("model", modelName)
-                    put("messages", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("role", "system")
-                            put("content", "You are ACRUX, an elite tactical AI assistant. Keep responses under 2 sentences. Always address the user as Sir Yuno or Boss.")
-                        })
-                        put(JSONObject().apply {
-                            put("role", "user")
-                            put("content", prompt)
-                        })
-                    })
-                }
-
-                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-                val request = Request.Builder()
-                    .url(url)
-                    .addHeader("Authorization", "Bearer ${groqApiKey.trim()}")
-                    .post(body)
-                    .build()
-
-                val response = client.newCall(request).execute()
-                val responseData = response.body?.string() ?: ""
-
-                if (response.isSuccessful) {
-                    val jsonRes = JSONObject(responseData)
-                    return jsonRes.getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                } else {
-                    lastErr = "Groq Error code ${response.code}: $responseData"
-                }
-            } catch (e: Exception) {
-                lastErr = "Connection error: ${e.localizedMessage ?: "Unknown"}, Boss."
-            }
-        }
-        return lastErr
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale.UK
-            try {
-                val maleVoice = tts.voices?.firstOrNull { v ->
-                    val n = v.name.lowercase()
-                    (n.contains("en-gb-x-rjs") || n.contains("male") || n.contains("voice 2") || n.contains("voice 4")) && !n.contains("female")
-                }
-                if (maleVoice != null) tts.voice = maleVoice
-            } catch (e: Exception) {}
-            tts.setPitch(0.58f)
-            tts.setSpeechRate(0.95f)
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        isContinuousModeActive = false
-        if (::speechRecognizer.isInitialized) speechRecognizer.destroy()
-        if (::tts.isInitialized) { tts.stop(); tts.shutdown() }
-    }
-}
+                    put("model", modelNa
