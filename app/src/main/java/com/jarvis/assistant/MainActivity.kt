@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val client = OkHttpClient()
 
     // PASTE YOUR REAL GROQ API KEY HERE (keep the double quotes)
-    private val groqApiKey = "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"
+    private val groqApiKey = "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
 
     private var recognizedText by mutableStateOf("Listening...")
     private var assistantResponse by mutableStateOf("")
@@ -256,15 +256,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         when {
-            // Unlock phone using Accessibility Service
             cleanQuery.contains("unlock") -> {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
                     val reply = "Unlocking your device now, sir."
                     assistantResponse = reply
                     speakAndExecute(reply) {
-                        service.unlockDevice()
-                        dismissOverlay()
+                        // Dismiss Jarvis UI first, then perform swipe and PIN tap on lockscreen
+                        finish()
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            service.unlockDevice()
+                        }, 400)
                     }
                 } else {
                     val reply = "Please enable Jarvis in your Accessibility settings first, sir."
