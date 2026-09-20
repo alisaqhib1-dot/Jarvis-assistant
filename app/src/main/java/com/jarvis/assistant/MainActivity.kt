@@ -2,10 +2,12 @@ package com.jarvis.assistant
 
 import android.Manifest
 import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +37,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.Locale
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
@@ -87,7 +90,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val requiredList = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_CONTACTS
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requiredList.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -217,6 +221,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         finish()
     }
 
+    private fun toggleFlashlight(enable: Boolean): Boolean {
+        return try {
+            val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = cameraManager.cameraIdList[0]
+            cameraManager.setTorchMode(cameraId, enable)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun openAppByName(appName: String): Boolean {
         val pm = packageManager
         val intent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -280,6 +295,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         when {
+            // FLASHLIGHT CONTROLS
+            cleanQuery.contains("flashlight on") || cleanQuery.contains("turn on the torch") || cleanQuery.contains("torch on") || cleanQuery.contains("turn on flashlight") -> {
+                val success = toggleFlashlight(true)
+                val reply = if (success) "Flashlight turned on, sir." else "Unable to activate flashlight, sir."
+                responseTextView.text = reply
+                speakAndListen(reply)
+            }
+
+            cleanQuery.contains("flashlight off") || cleanQuery.contains("turn off the torch") || cleanQuery.contains("torch off") || cleanQuery.contains("turn off flashlight") -> {
+                val success = toggleFlashlight(false)
+                val reply = if (success) "Flashlight turned off, sir." else "Unable to deactivate flashlight, sir."
+                responseTextView.text = reply
+                speakAndListen(reply)
+            }
+
+            // UNLOCK COMMAND
             cleanQuery.contains("unlock") -> {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
@@ -302,6 +333,60 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // WHATSAPP AUTOMATION
+            cleanQuery.startsWith("whatsapp ") || cleanQuery.startsWith("msg ") || cleanQuery.startsWith("mssg ") || cleanQuery.startsWith("message ") -> {
+                var stripped = cleanQuery
+                    .removePrefix("whatsapp ")
+                    .removePrefix("msg ")
+                    .removePrefix("mssg ")
+                    .removePrefix("message ")
+                    .trim()
+
+                if (stripped.endsWith(" on whatsapp")) {
+                    stripped = stripped.removeSuffix(" on whatsapp").trim()
+                }
+
+                if (stripped.startsWith("to ")) {
+                    stripped = stripped.removePrefix("to ").trim()
+                }
+
+                val match = findContactAndMessage(stripped)
+                if (match != null) {
+                    val (contactName, rawNumber, textToSend) = match
+                    var cleanNum = rawNumber.replace("[^0-9+]".toRegex(), "")
+                    if (!cleanNum.startsWith("+") && cleanNum.length == 10) {
+                        cleanNum = "+91$cleanNum"
+                    }
+
+                    val reply = "Sending message to $contactName on WhatsApp, sir."
+                    responseTextView.text = reply
+                    speakAndExecute(reply) {
+                        try {
+                            val encodedMsg = URLEncoder.encode(textToSend, "UTF-8")
+                            val waUri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNum&text=$encodedMsg")
+                            val waIntent = Intent(Intent.ACTION_VIEW, waUri).apply {
+                                setPackage("com.whatsapp")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(waIntent)
+
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                JarvisAccessibilityService.instance?.clickWhatsAppSend()
+                            }, 1800)
+
+                            dismissOverlay()
+                        } catch (e: Exception) {
+                            responseTextView.text = "Could not open WhatsApp, sir."
+                        }
+                    }
+                } else {
+                    val reply = "I couldn't identify the contact in your address book, sir."
+                    responseTextView.text = reply
+                    speakAndListen(reply)
+                }
+            }
+
+            // YOUTUBE PLAY COMMAND
             cleanQuery.startsWith("play ") -> {
                 val songQuery = cleanQuery
                     .removePrefix("play ")
@@ -328,6 +413,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // CAMERA / TAKE PHOTO COMMAND
             cleanQuery.contains("open camera") || cleanQuery.contains("take a picture") || cleanQuery.contains("take a photo") -> {
                 val isCapture = cleanQuery.contains("take a")
                 val reply = if (isCapture) "Taking a photo now, sir." else "Opening camera, sir."
@@ -348,6 +434,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // GENERIC APP LAUNCH
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery.removePrefix("open ").removePrefix("launch ").trim()
                 val success = openAppByName(appTarget)
@@ -356,6 +443,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakAndListen(reply)
             }
 
+            // CALL COMMAND
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
                 val contactTarget = cleanQuery.removePrefix("call ").removePrefix("dial ").trim()
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
@@ -386,6 +474,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // GROQ AI FALLBACK
             else -> {
                 responseTextView.text = "Thinking..."
                 CoroutineScope(Dispatchers.IO).launch {
@@ -399,97 +488,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun callGroqApi(prompt: String): String {
-        return try {
-            val mediaType = "application/json; charset=utf-8".toMediaType()
-            val payload = JSONObject().apply {
-                put("model", "openai/gpt-oss-20b")
-                put("messages", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", "You are JARVIS. Answer concisely in 1-2 sentences.")
-                    })
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", prompt)
-                    })
-                })
-            }
-
-            val request = Request.Builder()
-                .url("https://api.groq.com/openai/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $groqApiKey")
-                .post(payload.toString().toRequestBody(mediaType))
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-
-            if (!response.isSuccessful) {
-                return "Error ${response.code}"
-            }
-
-            val jsonResponse = JSONObject(responseBody)
-            jsonResponse
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-        } catch (e: Exception) {
-            "Error: ${e.localizedMessage ?: "Network issue"}"
-        }
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale.UK
-            tts.setPitch(0.92f)
-            tts.setSpeechRate(1.05f)
-
-            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
-
-                override fun onDone(utteranceId: String?) {
-                    if (utteranceId == "JARVIS_CONTINUOUS" && isContinuousModeActive) {
-                        mainHandler.postDelayed({
-                            startListening()
-                        }, 250)
-                    }
-                }
-
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) {}
-            })
-        }
-    }
-
-    private fun speakAndListen(text: String) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_CONTINUOUS")
-    }
-
-    private fun speakAndExecute(text: String, action: () -> Unit) {
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == "JARVIS_EXECUTE") {
-                    mainHandler.post { action() }
-                }
-            }
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {}
-        })
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_EXECUTE")
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        isContinuousModeActive = false
-        if (::speechRecognizer.isInitialized) {
-            speechRecognizer.destroy()
-        }
-        if (::tts.isInitialized) {
-            tts.stop()
-            tts.shutdown()
-        }
-    }
-}
+    private fun findContactAndMessage(input: String): Triple<String, String, String>? {
+        val delimiters = listOf(" saying ", " that ", " msg ", " message ")
+        for (delimit
