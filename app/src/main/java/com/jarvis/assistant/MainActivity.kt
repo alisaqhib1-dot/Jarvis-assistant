@@ -267,7 +267,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         when {
-            // UNLOCK COMMAND
             cleanQuery.contains("unlock") -> {
                 val service = JarvisAccessibilityService.instance
                 if (service != null) {
@@ -290,7 +289,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // YOUTUBE PLAY COMMAND
             cleanQuery.startsWith("play ") -> {
                 val songQuery = cleanQuery
                     .removePrefix("play ")
@@ -317,7 +315,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // CAMERA / TAKE PHOTO COMMAND
             cleanQuery.contains("open camera") || cleanQuery.contains("take a picture") || cleanQuery.contains("take a photo") -> {
                 val isCapture = cleanQuery.contains("take a")
                 val reply = if (isCapture) "Taking a photo now, sir." else "Opening camera, sir."
@@ -338,7 +335,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // GENERIC APP LAUNCH
             cleanQuery.startsWith("open ") || cleanQuery.startsWith("launch ") -> {
                 val appTarget = cleanQuery
                     .removePrefix("open ")
@@ -355,7 +351,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakAndListen(reply)
             }
 
-            // CALL COMMAND
             cleanQuery.startsWith("call ") || cleanQuery.startsWith("dial ") -> {
                 val contactTarget = cleanQuery
                     .removePrefix("call ")
@@ -390,7 +385,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // GROQ AI FALLBACK
             else -> {
                 assistantResponse = "Thinking..."
                 CoroutineScope(Dispatchers.IO).launch {
@@ -510,5 +504,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
-                    .background(Color(0xFF, 0x10, 0x18, 0x27), RoundedCornerShape(32.dp))
-                    .cli
+                    .background(Color(0xFF101827.toInt()), RoundedCornerShape(32.dp))
+                    .clickable(enabled = false) {}
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
