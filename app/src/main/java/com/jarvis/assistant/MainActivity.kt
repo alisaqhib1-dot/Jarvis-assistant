@@ -1,378 +1,119 @@
 package com.jarvis.assistant
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
-import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.Locale
 
-class MainActivity : Activity(), TextToSpeech.OnInitListener {
+class MainActivity : AppCompatActivity() {
 
-    private lateinit var tts: TextToSpeech
-    private lateinit var speechRecognizer: SpeechRecognizer
-    private lateinit var deviceController: DeviceController
-
-    private lateinit var tvHeader: TextView
     private lateinit var tvStatus: TextView
-    private lateinit var etInput: EditText
-    private lateinit var btnSpeak: Button
-    private lateinit var btnSend: Button
-
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
+    private lateinit var etCommand: EditText
+    private lateinit var btnExecute: Button
+    private lateinit var btnVoice: Button
+    private lateinit var deviceController: DeviceController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
         deviceController = DeviceController(this)
+        tvStatus = findViewById(R.id.tvStatus)
+        etCommand = findViewById(R.id.etCommand)
+        btnExecute = findViewById(R.id.btnExecute)
+        btnVoice = findViewById(R.id.btnVoice)
 
-        val scrollView = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#090D16"))
-            isFillViewport = true
-        }
+        checkAndRequestPermissions()
 
-        val rootLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(50, 70, 50, 50)
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-
-        tvHeader = TextView(this).apply {
-            text = "A C R U X"
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#00E5FF"))
-            letterSpacing = 0.3f
-            gravity = Gravity.CENTER
-            setPadding(0, 20, 0, 10)
-        }
-        rootLayout.addView(tvHeader)
-
-        val tvSub = TextView(this).apply {
-            text = "TACTICAL SYSTEM ONLINE"
-            textSize = 11f
-            setTextColor(Color.parseColor("#5A6E85"))
-            letterSpacing = 0.15f
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 60)
-        }
-        rootLayout.addView(tvSub)
-
-        val cardDrawable = GradientDrawable().apply {
-            setColor(Color.parseColor("#121826"))
-            cornerRadius = 24f
-            setStroke(2, Color.parseColor("#1E293B"))
-        }
-
-        val statusCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = cardDrawable
-            setPadding(40, 40, 40, 40)
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.setMargins(0, 0, 0, 60)
-            layoutParams = params
-        }
-
-        tvStatus = TextView(this).apply {
-            text = "Standing by for command..."
-            textSize = 16f
-            setTextColor(Color.parseColor("#E2E8F0"))
-            gravity = Gravity.CENTER
-            setLineSpacing(1.2f, 1.2f)
-        }
-        statusCard.addView(tvStatus)
-        rootLayout.addView(statusCard)
-
-        val inputDrawable = GradientDrawable().apply {
-            setColor(Color.parseColor("#141C2E"))
-            cornerRadius = 20f
-            setStroke(2, Color.parseColor("#27354A"))
-        }
-
-        etInput = EditText(this).apply {
-            hint = "Ask ACRUX or issue system directive..."
-            setHintTextColor(Color.parseColor("#64748B"))
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            background = inputDrawable
-            setPadding(36, 32, 36, 32)
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.setMargins(0, 0, 0, 24)
-            layoutParams = params
-        }
-        rootLayout.addView(etInput)
-
-        val sendBtnDrawable = GradientDrawable().apply {
-            setColor(Color.parseColor("#1E293B"))
-            cornerRadius = 20f
-            setStroke(2, Color.parseColor("#334155"))
-        }
-
-        btnSend = Button(this).apply {
-            text = "EXECUTE DIRECTIVE"
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#CBD5E1"))
-            background = sendBtnDrawable
-            setPadding(0, 30, 0, 30)
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.setMargins(0, 0, 0, 20)
-            layoutParams = params
-        }
-        rootLayout.addView(btnSend)
-
-        val voiceBtnDrawable = GradientDrawable().apply {
-            setColor(Color.parseColor("#00E5FF"))
-            cornerRadius = 20f
-        }
-
-        btnSpeak = Button(this).apply {
-            text = "● INITIATE VOICE"
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#090D16"))
-            background = voiceBtnDrawable
-            setPadding(0, 32, 0, 32)
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            layoutParams = params
-        }
-        rootLayout.addView(btnSpeak)
-
-        scrollView.addView(rootLayout)
-        setContentView(scrollView)
-
-        tts = TextToSpeech(this, this)
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-
-        setupSpeechRecognizer()
-        requestImmortalPermissions()
-        startPersistentService()
-
-        btnSpeak.setOnClickListener {
-            startListening()
-        }
-
-        btnSend.setOnClickListener {
-            val text = etInput.text.toString().trim()
+        btnExecute.setOnClickListener {
+            val text = etCommand.text.toString().trim()
             if (text.isNotEmpty()) {
-                handleUserCommand(text)
-                etInput.text.clear()
-            }
-        }
-    }
-
-    private fun startPersistentService() {
-        try {
-            val serviceIntent = Intent(this, PersistentService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun requestImmortalPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val permissionsToRequest = mutableListOf<String>()
-
-            val permissions = mutableListOf(
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.READ_PHONE_STATE,
-                Manifest.permission.READ_CALL_LOG,
-                Manifest.permission.READ_CONTACTS,
-                Manifest.permission.RECEIVE_SMS,
-                Manifest.permission.READ_SMS,
-                Manifest.permission.SEND_SMS
-            )
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-
-            for (perm in permissions) {
-                if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
-                    permissionsToRequest.add(perm)
-                }
-            }
-
-            if (permissionsToRequest.isNotEmpty()) {
-                requestPermissions(permissionsToRequest.toTypedArray(), 101)
+                executeDirective(text)
+                etCommand.text.clear()
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                startActivity(intent)
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(this)) {
-            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                data = Uri.parse("package:$packageName")
-            }
-            startActivity(intent)
+        btnVoice.setOnClickListener {
+            startBackgroundService()
+            tvStatus.text = "ACRUX Listening active"
         }
     }
 
-    private fun setupSpeechRecognizer() {
-        speechRecognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                tvStatus.text = "Listening for audio stream..."
-                tvStatus.setTextColor(Color.parseColor("#00E5FF"))
-            }
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {
-                tvStatus.text = "Processing directive..."
-                tvStatus.setTextColor(Color.parseColor("#94A3B8"))
-            }
-            override fun onError(error: Int) {
-                tvStatus.text = "Standing by. Tap Initiate Voice to retry."
-                tvStatus.setTextColor(Color.parseColor("#EF4444"))
-            }
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    val query = matches[0]
-                    tvStatus.text = query
-                    tvStatus.setTextColor(Color.WHITE)
-                    handleUserCommand(query)
-                }
-            }
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-    }
+    private fun checkAndRequestPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.SEND_SMS
+        )
 
-    private fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        speechRecognizer.startListening(intent)
-    }
 
-    private fun handleUserCommand(command: String) {
-        val lower = command.lowercase(Locale.ROOT)
+        val needed = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
 
-        when {
-            lower.contains("turn on flashlight") || lower.contains("torch on") -> {
-                val response = deviceController.setFlashlight(true)
-                speak(response)
-            }
-            lower.contains("turn off flashlight") || lower.contains("torch off") -> {
-                val response = deviceController.setFlashlight(false)
-                speak(response)
-            }
-            lower.contains("silent") || lower.contains("mute") -> {
-                val response = deviceController.setRingerMode("silent")
-                speak(response)
-            }
-            lower.contains("vibrate") -> {
-                val response = deviceController.setRingerMode("vibrate")
-                speak(response)
-            }
-            lower.contains("normal mode") || lower.contains("unmute") || lower.contains("ring mode") -> {
-                val response = deviceController.setRingerMode("normal")
-                speak(response)
-            }
-            lower.contains("battery") || lower.contains("telemetry") -> {
-                val response = deviceController.getBatteryTelemetry()
-                speak(response)
-            }
-            lower.contains("clean cache") || lower.contains("clear junk") || lower.contains("clean storage") -> {
-                val response = deviceController.cleanAppCache()
-                speak(response)
-            }
-            lower.contains("brightness") -> {
-                val numbers = Regex("\\d+").findAll(lower).map { it.value.toInt() }.toList()
-                val level = if (numbers.isNotEmpty()) numbers[0] else 128
-                val response = deviceController.setBrightness(level)
-                speak(response)
-            }
-            lower.startsWith("send whatsapp") || lower.startsWith("whatsapp") -> {
-                speak("Opening WhatsApp")
-                JarvisAccessibilityService.instance?.clickWhatsAppSend()
-            }
-            lower.contains("unlock") -> {
-                JarvisAccessibilityService.instance?.unlockDevice()
-            }
-            else -> {
-                // Route query through Groq LLM brain
-                tvStatus.text = "Consulting neural engine..."
-                tvStatus.setTextColor(Color.parseColor("#00E5FF"))
-
-                activityScope.launch {
-                    val aiResponse = GroqClient.query(command)
-                    withContext(Dispatchers.Main) {
-                        speak(aiResponse)
-                    }
-                }
-            }
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), 101)
+        } else {
+            startBackgroundService()
         }
     }
 
-    private fun speak(text: String) {
-        tvStatus.text = text
-        tvStatus.setTextColor(Color.WHITE)
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "UTTERANCE_ID")
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale.US
-            tts.setPitch(0.95f)
-            tts.setSpeechRate(0.95f)
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 101) {
+            startBackgroundService()
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        tts.stop()
-        tts.shutdown()
-        speechRecognizer.destroy()
+    private fun startBackgroundService() {
+        val serviceIntent = Intent(this, PersistentService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+
+    private fun executeDirective(command: String) {
+        tvStatus.text = "Processing: $command"
+        val lower = command.lowercase()
+        val hardwareResult = when {
+            "flashlight on" in lower || "torch on" in lower -> deviceController.setFlashlight(true)
+            "flashlight off" in lower || "torch off" in lower -> deviceController.setFlashlight(false)
+            "silent" in lower -> deviceController.setRingerMode("silent")
+            "vibrate" in lower -> deviceController.setRingerMode("vibrate")
+            "ring" in lower || "normal mode" in lower -> deviceController.setRingerMode("normal")
+            "battery" in lower -> deviceController.getBatteryTelemetry()
+            "clean cache" in lower || "clear cache" in lower -> deviceController.cleanAppCache()
+            else -> null
+        }
+
+        if (hardwareResult != null) {
+            tvStatus.text = hardwareResult
+            return
+        }
+
+        CoroutineScope(Dispatchers.Main).launch {
+            val reply = GroqClient.query(command)
+            tvStatus.text = reply
+        }
     }
 }
