@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 object GroqClient {
 
     // Keep your actual Groq key here
-    private const val API_KEY = "YOUR_GROQ_API_KEY_HERE"
+    private const val API_KEY = "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"
     private const val ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
     private const val MODEL = "llama-3.3-70b-versatile"
 
