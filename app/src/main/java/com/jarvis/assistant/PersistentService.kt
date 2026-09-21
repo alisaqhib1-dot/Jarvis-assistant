@@ -6,15 +6,16 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.Locale
@@ -25,15 +26,17 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         private const val TAG = "PersistentService"
         private const val CHANNEL_ID = "zuraiz_persistent_channel"
         private const val NOTIFICATION_ID = 1001
+        private const val UTTERANCE_ID = "ZURAIZ_REPLY"
     }
 
     private var speechRecognizer: SpeechRecognizer? = null
     private lateinit var speechIntent: Intent
     private var textToSpeech: TextToSpeech? = null
+    private var isTtsReady = false
     private lateinit var deviceController: DeviceController
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var isListeningActive = false
+    private var isSpeaking = false
     private var isStandbyFrozen = false
 
     override fun onCreate() {
@@ -45,11 +48,12 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         startForeground(NOTIFICATION_ID, buildForegroundNotification("ZURAIZ Online — Listening"))
 
         initSpeechRecognizer()
-        startListeningLoop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startListeningLoop()
+        if (isTtsReady && !isSpeaking) {
+            startListeningLoop()
+        }
         return START_STICKY
     }
 
@@ -60,11 +64,66 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             textToSpeech?.language = Locale.US
             textToSpeech?.setPitch(0.9f)
             textToSpeech?.setSpeechRate(1.0f)
+
+            // Force output directly through media stream so it cannot be muted by the mic
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            textToSpeech?.setAudioAttributes(audioAttributes)
+
+            textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    isSpeaking = true
+                }
+
+                override fun onDone(utteranceId: String?) {
+                    isSpeaking = false
+                    // Resume listening immediately after speech finishes
+                    mainHandler.postDelayed({
+                        startListeningLoop()
+                    }, 200)
+                }
+
+                override fun onError(utteranceId: String?) {
+                    isSpeaking = false
+                    mainHandler.postDelayed({
+                        startListeningLoop()
+                    }, 200)
+                }
+            })
+
+            isTtsReady = true
+            Log.d(TAG, "TextToSpeech successfully initialized.")
+            startListeningLoop()
+        } else {
+            Log.e(TAG, "TextToSpeech initialization failed with status: $status")
         }
     }
 
     private fun speak(message: String) {
-        textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "ZURAIZ_TTS")
+        if (!isTtsReady) {
+            Log.w(TAG, "TTS not ready yet. Dropped message: $message")
+            return
+        }
+
+        mainHandler.post {
+            try {
+                // Stop listening immediately to release the microphone and audio ducking
+                speechRecognizer?.stopListening()
+                isSpeaking = true
+
+                val params = Bundle().apply {
+                    putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC)
+                }
+
+                textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, params, UTTERANCE_ID)
+            } catch (e: Exception) {
+                Log.e(TAG, "Speak error: ${e.message}")
+                isSpeaking = false
+                startListeningLoop()
+            }
+        }
     }
 
     private fun initSpeechRecognizer() {
@@ -74,7 +133,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
                     setRecognitionListener(object : RecognitionListener {
                         override fun onReadyForSpeech(params: Bundle?) {
-                            isListeningActive = true
+                            Log.d(TAG, "Mic ready for speech.")
                         }
 
                         override fun onBeginningOfSpeech() {}
@@ -83,12 +142,10 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
                         override fun onBufferReceived(buffer: ByteArray?) {}
 
-                        override fun onEndOfSpeech() {
-                            isListeningActive = false
-                        }
+                        override fun onEndOfSpeech() {}
 
                         override fun onError(error: Int) {
-                            isListeningActive = false
+                            Log.d(TAG, "Speech error code: $error")
                             restartListeningIfNeeded()
                         }
 
@@ -96,16 +153,19 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                             if (!matches.isNullOrEmpty()) {
                                 handleVoiceCommand(matches[0])
+                            } else {
+                                restartListeningIfNeeded()
                             }
-                            restartListeningIfNeeded()
                         }
 
                         override fun onPartialResults(partialResults: Bundle?) {
                             val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                             if (!matches.isNullOrEmpty()) {
                                 val spoken = matches[0].lowercase().trim()
-                                if (spoken.contains("stop") || spoken.contains("quiet")) {
+                                if (spoken == "stop" || spoken == "quiet") {
                                     textToSpeech?.stop()
+                                    isSpeaking = false
+                                    startListeningLoop()
                                 }
                             }
                         }
@@ -121,39 +181,32 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error initializing speech recognizer: ${e.message}")
+                Log.e(TAG, "Error initializing recognizer: ${e.message}")
             }
         }
     }
 
-    /**
-     * Central routing engine for voice commands.
-     */
     private fun handleVoiceCommand(rawInput: String) {
         val command = rawInput.trim().lowercase()
-        Log.d(TAG, "Voice received: $command")
+        Log.d(TAG, "Voice command received: $command")
 
-        // 1. Wake from Standby: Evaluated first when frozen
+        // 1. Wake from Standby
         if (isStandbyFrozen) {
             if (command.contains("arise") || command.contains("wake up") || command.contains("zuraiz")) {
                 exitFrozenStandby()
+            } else {
+                restartListeningIfNeeded()
             }
             return
         }
 
-        // 2. Instant speech cancellation
-        if (command == "stop" || command == "quiet") {
-            textToSpeech?.stop()
-            return
-        }
-
-        // 3. Freeze / Standby Trigger
+        // 2. Standby Trigger
         if (command.contains("freeze") || command.contains("sleep")) {
             enterFrozenStandby()
             return
         }
 
-        // 4. Security Challenge Response
+        // 3. Security Challenge Response
         if (deviceController.isAwaitingAuthChallenge) {
             deviceController.processAuthResponse(rawInput) { reply ->
                 speak(reply)
@@ -161,7 +214,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // 5. Screen Unlock Request Gate
+        // 4. Unlock Command Gate
         if (command.contains("unlock") || command.contains("open phone")) {
             deviceController.handleUnlockRequest { prompt ->
                 speak(prompt)
@@ -169,54 +222,46 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // 6. Offline Hardware Controls & RPA
-        val handledLocally = deviceController.executeOfflineCommand(command) { reply ->
+        // 5. Offline Hardware Controls & RPA
+        val handled = deviceController.executeOfflineCommand(command) { reply ->
             speak(reply)
         }
-        if (handledLocally) return
+
+        if (!handled) {
+            restartListeningIfNeeded()
+        }
     }
 
-    /**
-     * Low-power standby: Speech recognizer stays alive to catch 'ARISE'.
-     */
     private fun enterFrozenStandby() {
         isStandbyFrozen = true
-        isListeningActive = false
-        speak("Entering standby mode, Boss.")
         updateNotification("ZURAIZ Frozen — Say 'ARISE' to wake")
-
-        mainHandler.postDelayed({
-            startListeningLoop()
-        }, 600)
+        speak("Entering standby mode, Boss.")
     }
 
-    /**
-     * Wakes the system back to active state.
-     */
     private fun exitFrozenStandby() {
         isStandbyFrozen = false
-        speak("Systems online. At your service, Sir YUNO.")
         updateNotification("ZURAIZ Online — Listening")
-
-        mainHandler.postDelayed({
-            startListeningLoop()
-        }, 500)
+        speak("Systems online. At your service, Sir YUNO.")
     }
 
     private fun startListeningLoop() {
+        if (isSpeaking) return
+
         mainHandler.post {
             try {
                 speechRecognizer?.startListening(speechIntent)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start listening: ${e.message}")
+                Log.e(TAG, "startListeningLoop error: ${e.message}")
             }
         }
     }
 
     private fun restartListeningIfNeeded() {
-        mainHandler.postDelayed({
-            startListeningLoop()
-        }, 350)
+        if (!isSpeaking) {
+            mainHandler.postDelayed({
+                startListeningLoop()
+            }, 300)
+        }
     }
 
     private fun buildForegroundNotification(statusText: String): Notification {
