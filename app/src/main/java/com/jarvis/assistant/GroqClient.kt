@@ -15,7 +15,7 @@ object GroqClient {
     // Keep your actual Groq key here
     private const val API_KEY = "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"
     private const val ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-    private const val MODEL = "llama-3.3-70b-versatile"
+    private const val MODEL = "llama-3.1-8b-instant"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
