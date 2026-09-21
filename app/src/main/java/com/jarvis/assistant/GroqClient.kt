@@ -15,7 +15,8 @@ object GroqClient {
     // Keep your actual Groq key here
     private const val API_KEY = "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"
     private const val ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-    private const val MODEL = "gemma2-9b-it"
+    private const val MODEL = "openai/gpt-oss-20b"
+    
     
 
     private val client = OkHttpClient.Builder()
