@@ -2,12 +2,12 @@ package com.jarvis.assistant
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.graphics.Path
-import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 
 class JarvisAccessibilityService : AccessibilityService() {
 
@@ -16,18 +16,23 @@ class JarvisAccessibilityService : AccessibilityService() {
             private set
     }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Calibrated Keypad Coordinates for PIN: 9 -> 0 -> 4 -> 6
+    private val pinCoordinates = listOf(
+        Pair(799.5f, 1606.1f), // Key 9
+        Pair(557.7f, 1836.5f), // Key 0
+        Pair(264.7f, 1391.9f), // Key 4
+        Pair(842.0f, 1325.9f)  // Key 6
+    )
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val pkg = event?.packageName?.toString() ?: return
-
-        // Trigger send search whenever WhatsApp window or content changes
-        if (pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b") {
-            clickWhatsAppSend(10)
-        }
+        // Reserved for in-app node inspections (WhatsApp/Instagram automation)
     }
 
     override fun onInterrupt() {}
@@ -37,105 +42,84 @@ class JarvisAccessibilityService : AccessibilityService() {
         instance = null
     }
 
-    fun unlockDevice() {
-        val handler = Handler(Looper.getMainLooper())
+    /**
+     * Wakes the screen, performs an upward drag to open the keypad,
+     * and sequentially taps the PIN coordinates.
+     */
+    fun performAutoUnlock(onComplete: (() -> Unit)? = null) {
+        wakeDeviceScreen()
 
+        // Give the screen display 200ms to power on before swiping
+        mainHandler.postDelayed({
+            dispatchSwipeUp {
+                // Wait 350ms for lockscreen transition and keypad render
+                mainHandler.postDelayed({
+                    dispatchPinSequence(0, onComplete)
+                }, 350)
+            }
+        }, 200)
+    }
+
+    /**
+     * Wakes the physical display using PowerManager flags.
+     */
+    private fun wakeDeviceScreen() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        if (powerManager != null && !powerManager.isInteractive) {
+            val wakeLock = powerManager.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                        PowerManager.ON_AFTER_RELEASE,
+                "Zuraiz:UnlockWakeLock"
+            )
+            wakeLock.acquire(3000)
+        }
+    }
+
+    /**
+     * Simulates an upward vertical flick to pull up the PIN entry pad.
+     */
+    private fun dispatchSwipeUp(onSwipeFinished: () -> Unit) {
         val swipePath = Path().apply {
-            moveTo(540f, 1750f)
-            lineTo(540f, 250f)
+            moveTo(540f, 1900f) // Start drag from bottom-center
+            lineTo(540f, 500f)  // End drag at upper-center
         }
 
-        val swipeGesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(swipePath, 0, 120))
-            .build()
+        val swipeStroke = GestureDescription.StrokeDescription(swipePath, 0, 250)
+        val gesture = GestureDescription.Builder().addStroke(swipeStroke).build()
 
-        dispatchGesture(swipeGesture, object : GestureResultCallback() {
+        dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
-                handler.postDelayed({ tap(800f, 1650f) }, 600)
-                handler.postDelayed({ tap(550f, 1350f) }, 900)
-                handler.postDelayed({ tap(285f, 1350f) }, 1200)
-                handler.postDelayed({ tap(842f, 1350f) }, 1500)
-            }
-
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                super.onCancelled(gestureDescription)
+                onSwipeFinished()
             }
         }, null)
     }
 
-    fun clickFirstVisibleResult() {
-        val root = rootInActiveWindow ?: return
-        val clickableNode = findFirstClickableItem(root)
-        clickableNode?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-    }
-
-    private fun findFirstClickableItem(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-
-        if (node.isClickable && bounds.top > 320 && bounds.height() > 120) {
-            return node
+    /**
+     * Recursively injects tap gestures at each digit coordinate with a delay.
+     */
+    private fun dispatchPinSequence(index: Int, onComplete: (() -> Unit)?) {
+        if (index >= pinCoordinates.size) {
+            onComplete?.invoke()
+            return
         }
 
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val found = findFirstClickableItem(child)
-            if (found != null) return found
-        }
-        return null
-    }
-
-    fun clickWhatsAppSend(retries: Int = 10) {
-        val root = rootInActiveWindow ?: return
-
-        // Recursive search for the Send button across IDs, descriptions, and Hindi locale
-        val sendBtn = findSendNode(root)
-
-        if (sendBtn != null && sendBtn.isEnabled) {
-            sendBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-        } else if (retries > 0) {
-            Handler(Looper.getMainLooper()).postDelayed({
-                clickWhatsAppSend(retries - 1)
-            }, 300)
-        }
-    }
-
-    private fun findSendNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val desc = node.contentDescription?.toString()?.trim()
-        val text = node.text?.toString()?.trim()
-        val viewId = node.viewIdResourceName?.toString()
-
-        if (viewId == "com.whatsapp:id/send" || viewId == "com.whatsapp.w4b:id/send") {
-            return node
-        }
-
-        if (desc.equals("Send", ignoreCase = true) || desc.equals("भेजें", ignoreCase = true)) {
-            return node
-        }
-
-        if (text.equals("Send", ignoreCase = true) || text.equals("भेजें", ignoreCase = true)) {
-            return node
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val result = findSendNode(child)
-            if (result != null) return result
-        }
-
-        return null
-    }
-
-    fun tap(x: Float, y: Float) {
+        val targetCoord = pinCoordinates[index]
         val tapPath = Path().apply {
-            moveTo(x, y)
+            moveTo(targetCoord.first, targetCoord.second)
         }
 
-        val tapGesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(tapPath, 0, 80))
-            .build()
+        val tapStroke = GestureDescription.StrokeDescription(tapPath, 0, 50)
+        val tapGesture = GestureDescription.Builder().addStroke(tapStroke).build()
 
-        dispatchGesture(tapGesture, null, null)
+        dispatchGesture(tapGesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                super.onCompleted(gestureDescription)
+                mainHandler.postDelayed({
+                    dispatchPinSequence(index + 1, onComplete)
+                }, 120)
+            }
+        }, null)
     }
 }
