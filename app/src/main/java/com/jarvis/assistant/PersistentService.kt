@@ -14,7 +14,6 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
-import android.speech.tts.Voice
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,62 +28,43 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     private lateinit var deviceController: DeviceController
     private val scope = CoroutineScope(Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
-    
-    private var isExecuting = false
-    private var isSpeaking = false
+    private var isBusy = false
 
     override fun onCreate() {
         super.onCreate()
         deviceController = DeviceController(this)
         tts = TextToSpeech(this, this)
         startNotification()
-        setupSpeechEngine()
+        setupRecognizer()
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-
-            try {
-                val voices = tts?.voices
-                if (!voices.isNullOrEmpty()) {
-                    // Forcefully hunt for any installed male voice token
-                    val targetVoice = voices.firstOrNull { v ->
-                        val n = v.name.lowercase()
-                        (n.contains("en-us-x-sfg") || n.contains("en-us-x-iol") || n.contains("male")) && 
-                        !n.contains("female")
-                    }
-                    if (targetVoice != null) {
-                        tts?.voice = targetVoice
-                    }
-                }
-            } catch (_: Exception) {}
-
-            // Deep masculine tone
-            tts?.setPitch(0.65f)
-            tts?.setSpeechRate(0.88f)
+            tts?.setPitch(0.95f)
+            tts?.setSpeechRate(0.95f)
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        scheduleNextListen(500)
+        startListeningSafely(1000)
         return START_STICKY
     }
 
     private fun startNotification() {
-        val channelId = "zuraiz_service_channel"
+        val channelId = "zuraiz_service"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "ZURAIZ Service",
+                "ZURAIZ Background Service",
                 NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("ZURAIZ Online")
-            .setContentText("Tactical systems standing by.")
+            .setContentTitle("ZURAIZ Active")
+            .setContentText("Standing by.")
             .setSmallIcon(android.R.drawable.sym_def_app_icon)
             .setOngoing(true)
             .build()
@@ -92,13 +72,14 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         startForeground(1001, notification)
     }
 
-    private fun setupSpeechEngine() {
+    private fun setupRecognizer() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return
 
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
@@ -112,9 +93,8 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             override fun onEvent(eventType: Int, params: Bundle?) {}
 
             override fun onError(error: Int) {
-                // Ignore silent timeouts, restart smoothly after a pause without spamming
-                if (!isSpeaking && !isExecuting) {
-                    scheduleNextListen(1200)
+                if (!isBusy) {
+                    startListeningSafely(2000)
                 }
             }
 
@@ -122,63 +102,59 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val text = matches?.firstOrNull()?.trim()
                 if (!text.isNullOrEmpty()) {
-                    processIncomingInput(text)
+                    executeDirective(text)
                 } else {
-                    scheduleNextListen(1000)
+                    startListeningSafely(1000)
                 }
             }
         })
     }
 
-    private fun scheduleNextListen(delayMs: Long) {
+    private fun startListeningSafely(delayMs: Long) {
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({
-            if (!isSpeaking && !isExecuting) {
+            if (!isBusy) {
                 try {
                     speechRecognizer?.cancel()
                     recognizerIntent?.let { speechRecognizer?.startListening(it) }
                 } catch (_: Exception) {
-                    scheduleNextListen(2000)
+                    handler.postDelayed({ startListeningSafely(2500) }, 2500)
                 }
             }
         }, delayMs)
     }
 
-    private fun processIncomingInput(command: String) {
-        isExecuting = true
+    private fun executeDirective(text: String) {
+        isBusy = true
         speechRecognizer?.cancel()
 
-        val lower = command.lowercase()
-        if (lower == "stop" || lower == "shut up" || lower == "quiet") {
+        val lower = text.lowercase()
+        if (lower == "stop" || lower == "quiet" || lower == "shut up") {
             tts?.stop()
-            isExecuting = false
-            scheduleNextListen(800)
+            isBusy = false
+            startListeningSafely(1000)
             return
         }
 
-        val handled = deviceController.executeDirective(command) { message ->
-            speakOut(message)
+        val handled = deviceController.executeDirective(text) { reply ->
+            speak(reply)
         }
 
         if (!handled) {
             scope.launch {
-                val reply = GroqClient.query(command)
-                speakOut(reply)
+                val reply = GroqClient.query(text)
+                speak(reply)
             }
         }
     }
 
-    private fun speakOut(text: String) {
-        isSpeaking = true
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZuraizAudio")
-        
-        // Wait until speech finishes before listening again to prevent self-triggering
-        val estimatedDuration = (text.length * 75L) + 1500L
+    private fun speak(message: String) {
+        tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "ZuraizAudio")
+        val delay = (message.length * 80L).coerceAtLeast(2000L)
         handler.postDelayed({
-            isSpeaking = false
-            isExecuting = false
-            scheduleNextListen(500)
-        }, estimatedDuration)
+            isBusy = false
+            startListeningSafely(1000)
+        }, delay)
     }
 
     override fun onDestroy() {
