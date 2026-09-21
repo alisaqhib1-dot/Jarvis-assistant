@@ -1,51 +1,45 @@
 package com.jarvis.assistant
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
+
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 2001
+    }
 
     private lateinit var statusTextView: TextView
     private lateinit var btnToggleService: Button
     private lateinit var btnAccessibilitySettings: Button
 
-    private val requiredPermissions = mutableListOf(
-        Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.CAMERA
-    ).apply {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
+    private val requiredPermissions: Array<String>
+        get() {
+            val list = mutableListOf(
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.CAMERA
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                list.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            return list.toTypedArray()
         }
-    }.toTypedArray()
-
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.entries.all { it.value }
-        if (allGranted) {
-            startAssistantService()
-        } else {
-            Toast.makeText(this, "Permissions required for ZURAIZ security and listening.", Toast.LENGTH_LONG).show()
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Programmatic lightweight UI to eliminate layout XML resource dependencies
-        val layout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
+        // Native programmatic UI
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(50, 100, 50, 50)
             gravity = android.view.Gravity.CENTER_HORIZONTAL
         }
@@ -82,14 +76,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissionsAndStart() {
-        val missingPermissions = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (missingPermissions.isEmpty()) {
+        if (hasAllPermissions()) {
             startAssistantService()
         } else {
-            permissionLauncher.launch(requiredPermissions)
+            requestPermissions(requiredPermissions, PERMISSION_REQUEST_CODE)
+        }
+    }
+
+    private fun hasAllPermissions(): Boolean {
+        for (perm in requiredPermissions) {
+            if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+                return false
+            }
+        }
+        return true
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (allGranted) {
+                startAssistantService()
+            } else {
+                Toast.makeText(this, "Permissions required for ZURAIZ security and listening.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
