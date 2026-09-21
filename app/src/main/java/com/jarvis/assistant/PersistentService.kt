@@ -11,21 +11,31 @@ import android.os.IBinder
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.Locale
 
-class PersistentService : Service() {
+class PersistentService : Service(), TextToSpeech.OnInitListener {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var recognizerIntent: Intent? = null
+    private var tts: TextToSpeech? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
+        tts = TextToSpeech(this, this)
         startNotification()
         initListener()
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale.US
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,17 +106,23 @@ class PersistentService : Service() {
 
     private fun handleDirective(command: String) {
         scope.launch {
-            val handled = DeviceController.handleIntent(this@PersistentService, command)
+            val handled = DeviceController.executeAction(this@PersistentService, command)
             if (!handled) {
                 val reply = GroqClient.query(command)
-                DeviceController.speak(this@PersistentService, reply)
+                speakOut(reply)
             }
         }
+    }
+
+    private fun speakOut(text: String) {
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "AcruxTTS")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         speechRecognizer?.destroy()
+        tts?.stop()
+        tts?.shutdown()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
