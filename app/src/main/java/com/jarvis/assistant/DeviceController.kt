@@ -2,6 +2,7 @@ package com.jarvis.assistant
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Intent
@@ -20,6 +21,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
 
@@ -70,7 +72,6 @@ class DeviceController(private val context: Context) {
 
     /**
      * Offline Command Parser: Executes local commands without internet latency.
-     * Returns true if a command matched and executed locally.
      */
     fun executeOfflineCommand(rawCommand: String, speakCallback: (String) -> Unit): Boolean {
         val cmd = rawCommand.lowercase().trim()
@@ -202,7 +203,6 @@ class DeviceController(private val context: Context) {
     }
 
     private fun handleWhatsAppVoiceTrigger(cmd: String, speakCallback: (String) -> Unit) {
-        // Syntax expected: "send whatsapp to [contact] that [message]"
         val delimiter = " that "
         if (cmd.contains(delimiter)) {
             val parts = cmd.split(delimiter)
@@ -334,18 +334,49 @@ class DeviceController(private val context: Context) {
         }
     }
 
+    /**
+     * Builds and posts an alert notification displaying the intruder photo.
+     * Attaches a PendingIntent with FileProvider URI to open the photo in full screen on tap.
+     */
     private fun notifyIntruderBreach(photoPath: String) {
+        val imageFile = File(photoPath)
         val bitmap = BitmapFactory.decodeFile(photoPath)
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+        // Build a secure URI using Android's FileProvider
+        val photoUri: Uri = try {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                imageFile
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "FileProvider error: ${e.message}")
+            Uri.fromFile(imageFile)
+        }
+
+        // Tap action: Launch the photo in the system viewer
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(photoUri, "image/jpeg")
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            viewIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentTitle("SECURITY ALERT: Breach Attempt")
-            .setContentText("Unauthorized voice attempt detected. Intruder captured.")
+            .setContentText("Unauthorized voice attempt detected. Tap to inspect intruder.")
             .setLargeIcon(bitmap)
             .setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap).bigLargeIcon(null as? android.graphics.Bitmap))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
 
