@@ -6,9 +6,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -21,7 +18,6 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.Locale
-import kotlin.math.abs
 
 class PersistentService : Service(), TextToSpeech.OnInitListener {
 
@@ -29,9 +25,6 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         private const val TAG = "PersistentService"
         private const val CHANNEL_ID = "zuraiz_persistent_channel"
         private const val NOTIFICATION_ID = 1001
-
-        // Strict peak threshold to isolate real claps from voice frequencies
-        private const val CLAP_PEAK_THRESHOLD = 26000
     }
 
     private var speechRecognizer: SpeechRecognizer? = null
@@ -42,11 +35,6 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isListeningActive = false
     private var isStandbyFrozen = false
-
-    // Acoustic clap analyzer
-    private var clapAudioRecord: AudioRecord? = null
-    private var isClapDetectorRunning = false
-    private var lastClapTime: Long = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -61,9 +49,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!isStandbyFrozen) {
-            startListeningLoop()
-        }
+        startListeningLoop()
         return START_STICKY
     }
 
@@ -141,33 +127,33 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     /**
-     * Central routing engine for all voice input.
+     * Central routing engine for voice commands.
      */
     private fun handleVoiceCommand(rawInput: String) {
         val command = rawInput.trim().lowercase()
         Log.d(TAG, "Voice received: $command")
 
-        // 1. Instant speech cancellation
-        if (command == "stop" || command == "quiet") {
-            textToSpeech?.stop()
-            return
-        }
-
-        // 2. Freeze / Standby trigger
-        if (command.contains("freeze")) {
-            enterFrozenStandby()
-            return
-        }
-
-        // 3. Wake trigger while in standby
+        // 1. Wake from Standby: Evaluated first when frozen
         if (isStandbyFrozen) {
-            if (command.contains("arise")) {
+            if (command.contains("arise") || command.contains("wake up") || command.contains("zuraiz")) {
                 exitFrozenStandby()
             }
             return
         }
 
-        // 4. Security Challenge Response Gate
+        // 2. Instant speech cancellation
+        if (command == "stop" || command == "quiet") {
+            textToSpeech?.stop()
+            return
+        }
+
+        // 3. Freeze / Standby Trigger
+        if (command.contains("freeze") || command.contains("sleep")) {
+            enterFrozenStandby()
+            return
+        }
+
+        // 4. Security Challenge Response
         if (deviceController.isAwaitingAuthChallenge) {
             deviceController.processAuthResponse(rawInput) { reply ->
                 speak(reply)
@@ -183,7 +169,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // 6. Offline Hardware & App Automations
+        // 6. Offline Hardware Controls & RPA
         val handledLocally = deviceController.executeOfflineCommand(command) { reply ->
             speak(reply)
         }
@@ -191,7 +177,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     /**
-     * Transitions system into Frozen Standby.
+     * Low-power standby: Speech recognizer stays alive to catch 'ARISE'.
      */
     private fun enterFrozenStandby() {
         isStandbyFrozen = true
@@ -199,21 +185,16 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         speak("Entering standby mode, Boss.")
         updateNotification("ZURAIZ Frozen — Say 'ARISE' to wake")
 
-        // Free the microphone so the acoustic clap analyzer runs without conflicts
-        mainHandler.post {
-            try {
-                speechRecognizer?.stopListening()
-            } catch (_: Exception) {}
-            startClapDetectorThread()
-        }
+        mainHandler.postDelayed({
+            startListeningLoop()
+        }, 600)
     }
 
     /**
-     * Exits Frozen Standby and restores the speech recognition engine.
+     * Wakes the system back to active state.
      */
     private fun exitFrozenStandby() {
         isStandbyFrozen = false
-        stopClapDetectorThread()
         speak("Systems online. At your service, Sir YUNO.")
         updateNotification("ZURAIZ Online — Listening")
 
@@ -223,7 +204,6 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startListeningLoop() {
-        if (isStandbyFrozen) return
         mainHandler.post {
             try {
                 speechRecognizer?.startListening(speechIntent)
@@ -234,83 +214,9 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun restartListeningIfNeeded() {
-        if (!isStandbyFrozen) {
-            mainHandler.postDelayed({
-                startListeningLoop()
-            }, 350)
-        }
-    }
-
-    /**
-     * Acoustic pulse reader with crest-factor analysis to isolate real claps from voices.
-     */
-    private fun startClapDetectorThread() {
-        if (isClapDetectorRunning) return
-
-        val bufferSize = AudioRecord.getMinBufferSize(
-            8000,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-
-        try {
-            clapAudioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                8000,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
-
-            isClapDetectorRunning = true
-            clapAudioRecord?.startRecording()
-
-            Thread {
-                val buffer = ShortArray(bufferSize)
-                while (isClapDetectorRunning) {
-                    val read = clapAudioRecord?.read(buffer, 0, bufferSize) ?: 0
-                    if (read > 0) {
-                        var maxPeak = 0
-                        var totalEnergy: Long = 0
-
-                        for (i in 0 until read) {
-                            val sample = abs(buffer[i].toInt())
-                            if (sample > maxPeak) maxPeak = sample
-                            totalEnergy += sample
-                        }
-
-                        val avgEnergy = totalEnergy / read
-                        // Sharp crest verification: Real claps have an intense peak with very low average energy
-                        val isSharpTransient = maxPeak > CLAP_PEAK_THRESHOLD && (maxPeak / (avgEnergy + 1)) > 5
-
-                        if (isSharpTransient) {
-                            val now = System.currentTimeMillis()
-                            // Requires two distinct sharp spikes between 150ms and 550ms apart
-                            if (now - lastClapTime in 150..550) {
-                                mainHandler.post {
-                                    exitFrozenStandby()
-                                    speak("Hey boss, it seems you are happy today.")
-                                }
-                                lastClapTime = 0
-                            } else {
-                                lastClapTime = now
-                            }
-                        }
-                    }
-                }
-            }.start()
-        } catch (e: Exception) {
-            Log.e(TAG, "Clap detector exception: ${e.message}")
-        }
-    }
-
-    private fun stopClapDetectorThread() {
-        isClapDetectorRunning = false
-        try {
-            clapAudioRecord?.stop()
-            clapAudioRecord?.release()
-            clapAudioRecord = null
-        } catch (_: Exception) {}
+        mainHandler.postDelayed({
+            startListeningLoop()
+        }, 350)
     }
 
     private fun buildForegroundNotification(statusText: String): Notification {
@@ -342,7 +248,6 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopClapDetectorThread()
         speechRecognizer?.destroy()
         textToSpeech?.stop()
         textToSpeech?.shutdown()
