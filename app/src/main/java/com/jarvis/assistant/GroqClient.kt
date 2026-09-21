@@ -12,10 +12,10 @@ import java.util.concurrent.TimeUnit
 
 object GroqClient {
 
-    // TODO: Replace with your actual Groq API key (starts with "gsk_...")
-    private const val API_KEY = "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"
+    // Keep your actual Groq key here
+    private const val API_KEY = "YOUR_GROQ_API_KEY_HERE"
     private const val ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-    private const val MODEL = "llama3-70b-8192"
+    private const val MODEL = "llama-3.3-70b-versatile"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -69,11 +69,18 @@ object GroqClient {
                     return@withContext message.getString("content").trim()
                 }
             }
-            "Communication relay error. Code: ${response.code}"
+            
+            // Extract exact error detail from Groq if available
+            val errorDetail = try {
+                val errJson = JSONObject(responseBody ?: "")
+                errJson.getJSONObject("error").getString("message")
+            } catch (e: Exception) {
+                "Code: ${response.code}"
+            }
+            "Communication relay error: $errorDetail"
         } catch (e: Exception) {
             e.printStackTrace()
             "Neural link unreachable: ${e.localizedMessage ?: "Unknown error"}"
         }
     }
 }
-
