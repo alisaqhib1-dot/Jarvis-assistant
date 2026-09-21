@@ -37,6 +37,8 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
+            tts?.setPitch(1.0f)       // Natural pitch (no high alien voice)
+            tts?.setSpeechRate(0.95f) // Natural pacing (not super fast)
         }
     }
 
@@ -107,26 +109,15 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun handleDirective(command: String) {
-        val lower = command.lowercase()
-        val hardwareResult: String? = when {
-            "flashlight on" in lower || "torch on" in lower -> deviceController.setFlashlight(true)
-            "flashlight off" in lower || "torch off" in lower -> deviceController.setFlashlight(false)
-            "silent" in lower -> deviceController.setRingerMode("silent")
-            "vibrate" in lower -> deviceController.setRingerMode("vibrate")
-            "ring" in lower || "normal mode" in lower -> deviceController.setRingerMode("normal")
-            "battery" in lower -> deviceController.getBatteryTelemetry()
-            "clean cache" in lower || "clear cache" in lower -> deviceController.cleanAppCache()
-            else -> null
+        val handled = deviceController.executeDirective(command) { message ->
+            speakOut(message)
         }
 
-        if (hardwareResult != null) {
-            speakOut(hardwareResult)
-            return
-        }
-
-        scope.launch {
-            val reply = GroqClient.query(command)
-            speakOut(reply)
+        if (!handled) {
+            scope.launch {
+                val reply = GroqClient.query(command)
+                speakOut(reply)
+            }
         }
     }
 
