@@ -61,41 +61,39 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Wakes the display, performs an upward drag to open the keypad,
-     * waits for the keypad animation, and enters 9046.
+     * Wakes the display with full hardware illumination, swipes up, and enters 9046.
      */
     fun performAutoUnlock(onComplete: (() -> Unit)? = null) {
         wakeDeviceScreen()
 
-        // Wait 400ms for the display to power on and settle
+        // Wait 650ms for display backlight and touch digitizer to power on
         mainHandler.postDelayed({
             dispatchSwipeUp {
-                // Wait 600ms for the keypad transition to fully appear on screen
+                // Wait 750ms for PIN keypad transition to settle
                 mainHandler.postDelayed({
                     dispatchPinSequence(0, onComplete)
-                }, 600)
+                }, 750)
             }
-        }, 400)
+        }, 650)
     }
 
     /**
-     * Reliable screen wake for modern Android displays.
+     * Forces the physical display to turn on from sleep.
      */
     private fun wakeDeviceScreen() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-        if (!powerManager.isInteractive) {
-            val wakeLock = powerManager.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
-                "Zuraiz:ScreenWake"
-            )
-            wakeLock.acquire(4000)
-        }
+        
+        val wakeLock = powerManager.newWakeLock(
+            PowerManager.FULL_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+            "Zuraiz:ScreenWakeForce"
+        )
+        wakeLock.acquire(5000)
     }
 
     /**
-     * Executes a vertical swipe starting above the bottom navigation area (1600f) up to 350f.
+     * Executes a vertical swipe starting at (540, 1600) up to 350f over 320ms.
      */
     private fun dispatchSwipeUp(onSwipeFinished: () -> Unit) {
         val swipePath = Path().apply {
@@ -115,7 +113,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 super.onCancelled(gestureDescription)
-                Log.e(TAG, "Swipe up was cancelled by system.")
+                Log.e(TAG, "Swipe up cancelled by system.")
             }
         }, null)
     }
@@ -125,7 +123,7 @@ class JarvisAccessibilityService : AccessibilityService() {
      */
     private fun dispatchPinSequence(index: Int, onComplete: (() -> Unit)?) {
         if (index >= pinCoordinates.size) {
-            Log.d(TAG, "PIN entry complete.")
+            Log.d(TAG, "PIN sequence finished.")
             onComplete?.invoke()
             return
         }
@@ -135,17 +133,15 @@ class JarvisAccessibilityService : AccessibilityService() {
             moveTo(targetCoord.first, targetCoord.second)
         }
 
-        // 70ms tap duration ensures the touch listener catches it
         val tapStroke = GestureDescription.StrokeDescription(tapPath, 0, 70)
         val tapGesture = GestureDescription.Builder().addStroke(tapStroke).build()
 
         dispatchGesture(tapGesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
-                // 150ms delay between numbers gives the keypad time to register each digit
                 mainHandler.postDelayed({
                     dispatchPinSequence(index + 1, onComplete)
-                }, 150)
+                }, 160)
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
