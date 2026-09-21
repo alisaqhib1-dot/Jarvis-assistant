@@ -23,10 +23,12 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     private var speechRecognizer: SpeechRecognizer? = null
     private var recognizerIntent: Intent? = null
     private var tts: TextToSpeech? = null
+    private lateinit var deviceController: DeviceController
     private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
+        deviceController = DeviceController(this)
         tts = TextToSpeech(this, this)
         startNotification()
         initListener()
@@ -105,12 +107,26 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun handleDirective(command: String) {
+        val lower = command.lowercase()
+        val hardwareResult: String? = when {
+            "flashlight on" in lower || "torch on" in lower -> deviceController.setFlashlight(true)
+            "flashlight off" in lower || "torch off" in lower -> deviceController.setFlashlight(false)
+            "silent" in lower -> deviceController.setRingerMode("silent")
+            "vibrate" in lower -> deviceController.setRingerMode("vibrate")
+            "ring" in lower || "normal mode" in lower -> deviceController.setRingerMode("normal")
+            "battery" in lower -> deviceController.getBatteryTelemetry()
+            "clean cache" in lower || "clear cache" in lower -> deviceController.cleanAppCache()
+            else -> null
+        }
+
+        if (hardwareResult != null) {
+            speakOut(hardwareResult)
+            return
+        }
+
         scope.launch {
-            val handled = DeviceController.executeAction(this@PersistentService, command)
-            if (!handled) {
-                val reply = GroqClient.query(command)
-                speakOut(reply)
-            }
+            val reply = GroqClient.query(command)
+            speakOut(reply)
         }
     }
 
