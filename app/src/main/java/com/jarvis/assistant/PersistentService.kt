@@ -30,7 +30,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         private const val CHANNEL_ID = "zuraiz_persistent_channel"
         private const val NOTIFICATION_ID = 1001
         
-        // Audio threshold for clap spike detection
+        // Amplitude threshold for double-clap acoustic peak detection
         private const val CLAP_AMPLITUDE_THRESHOLD = 18000
     }
 
@@ -75,16 +75,10 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    /**
-     * Speaks text output. Instantly cancellable.
-     */
     private fun speak(message: String) {
         textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "ZURAIZ_TTS")
     }
 
-    /**
-     * Initializes Android's native continuous SpeechRecognizer engine.
-     */
     private fun initSpeechRecognizer() {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -126,7 +120,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
                     val spoken = matches[0].lowercase().trim()
-                    // Instant TTS Cutoff on "Stop" or "Quiet"
+                    // Instant speech cut-off
                     if (spoken.contains("stop") || spoken.contains("quiet")) {
                         textToSpeech?.stop()
                     }
@@ -183,7 +177,16 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // Unhandled commands pass through here
+        // 4. Hardware Controls & App Automation Directives
+        val executedLocally = deviceController.executeOfflineCommand(command) { reply ->
+            speak(reply)
+        }
+
+        if (executedLocally) {
+            return
+        }
+
+        // Pass-through for cloud queries or general conversation
     }
 
     private fun startListeningLoop() {
