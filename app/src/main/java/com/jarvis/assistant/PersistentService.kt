@@ -12,6 +12,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,8 +38,21 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            tts?.setPitch(1.0f)       // Natural pitch (no high alien voice)
-            tts?.setSpeechRate(0.95f) // Natural pacing (not super fast)
+            
+            // Set deep male vocal characteristics
+            tts?.setPitch(0.82f)       // Lower pitch for a grounded male profile
+            tts?.setSpeechRate(0.92f)    // Calm, steady cadence
+
+            // Pick a male voice preset if provided by the device engine
+            try {
+                val voices = tts?.voices
+                val maleVoice = voices?.firstOrNull { 
+                    it.locale == Locale.US && (it.name.contains("male", ignoreCase = true) || it.name.contains("#male", ignoreCase = true))
+                }
+                if (maleVoice != null) {
+                    tts?.voice = maleVoice
+                }
+            } catch (_: Exception) {}
         }
     }
 
