@@ -8,6 +8,8 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -17,8 +19,9 @@ class DeviceController(private val context: Context) {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    // --- FIX: Background App Launcher via PendingIntent ---
+    // --- App Launch via PendingIntent ---
     fun openApp(appName: String): String {
         val clean = appName.lowercase().trim().replace(" ", "")
         val pm = context.packageManager
@@ -62,7 +65,6 @@ class DeviceController(private val context: Context) {
         )
 
         return try {
-            // Android 14/15 background restriction bypass
             val pendingIntent = PendingIntent.getActivity(
                 context,
                 0,
@@ -81,13 +83,15 @@ class DeviceController(private val context: Context) {
         }
     }
 
-    // --- BUNDLE 1: Security & Lock Actions ---
+    // --- Device Lock Fix for Realme UI ---
     fun lockDevice(): String {
         return try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val component = ComponentName(context, AdminReceiver::class.java)
             if (dpm.isAdminActive(component)) {
-                dpm.lockNow()
+                mainHandler.post {
+                    dpm.lockNow()
+                }
                 "Device locked."
             } else {
                 "Admin permission required to lock device."
@@ -97,6 +101,7 @@ class DeviceController(private val context: Context) {
         }
     }
 
+    // --- Screen Wake ---
     fun wakeDevice(): String {
         return try {
             val wakeLock = powerManager.newWakeLock(
@@ -110,7 +115,7 @@ class DeviceController(private val context: Context) {
         }
     }
 
-    // --- Device Utilities ---
+    // --- Flashlight ---
     fun setFlashlight(enable: Boolean): String {
         return try {
             val cameraId = cameraManager.cameraIdList[0]
@@ -121,6 +126,7 @@ class DeviceController(private val context: Context) {
         }
     }
 
+    // --- Calls ---
     fun makeCall(phoneNumber: String): String {
         return try {
             val intent = Intent(Intent.ACTION_CALL).apply {
@@ -139,6 +145,7 @@ class DeviceController(private val context: Context) {
         }
     }
 
+    // --- Audio Profiles ---
     fun setRingerMode(mode: String): String {
         return when (mode.lowercase()) {
             "silent" -> {
@@ -156,6 +163,7 @@ class DeviceController(private val context: Context) {
         }
     }
 
+    // --- Battery Telemetry ---
     fun getBatteryTelemetry(): String {
         val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val status = context.registerReceiver(null, ifilter)
@@ -200,7 +208,7 @@ class DeviceController(private val context: Context) {
             return true
         }
 
-        // Audio Profiles
+        // Audio Modes
         if (cmd.contains("silent")) {
             onResult(setRingerMode("silent"))
             return true
@@ -214,7 +222,7 @@ class DeviceController(private val context: Context) {
             return true
         }
 
-        // Battery Telemetry
+        // Battery
         if (cmd.contains("battery")) {
             onResult(getBatteryTelemetry())
             return true
