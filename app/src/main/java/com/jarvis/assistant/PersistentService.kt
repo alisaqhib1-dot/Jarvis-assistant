@@ -10,6 +10,7 @@ import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -65,7 +66,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             textToSpeech?.setPitch(0.9f)
             textToSpeech?.setSpeechRate(1.0f)
 
-            // Force output directly through media stream so it cannot be muted by the mic
+            // Direct route through media channel so it isn't silenced
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANT)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -79,7 +80,6 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
                 override fun onDone(utteranceId: String?) {
                     isSpeaking = false
-                    // Resume listening immediately after speech finishes
                     mainHandler.postDelayed({
                         startListeningLoop()
                     }, 200)
@@ -109,7 +109,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
         mainHandler.post {
             try {
-                // Stop listening immediately to release the microphone and audio ducking
+                // Pause mic immediately so Android doesn't duck the speaker volume
                 speechRecognizer?.stopListening()
                 isSpeaking = true
 
