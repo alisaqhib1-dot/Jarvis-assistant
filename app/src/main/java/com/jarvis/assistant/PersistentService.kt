@@ -38,19 +38,19 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            
-            // Set deep male vocal characteristics
-            tts?.setPitch(0.82f)       // Lower pitch for a grounded male profile
-            tts?.setSpeechRate(0.92f)    // Calm, steady cadence
+            tts?.setPitch(0.70f)       // Deep tone
+            tts?.setSpeechRate(0.95f)
 
-            // Pick a male voice preset if provided by the device engine
+            // Select an explicit male voice engine profile
             try {
-                val voices = tts?.voices
-                val maleVoice = voices?.firstOrNull { 
-                    it.locale == Locale.US && (it.name.contains("male", ignoreCase = true) || it.name.contains("#male", ignoreCase = true))
+                val availableVoices = tts?.voices
+                val male = availableVoices?.firstOrNull { v ->
+                    val name = v.name.lowercase()
+                    (name.contains("male") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iol")) &&
+                    !name.contains("female")
                 }
-                if (maleVoice != null) {
-                    tts?.voice = maleVoice
+                if (male != null) {
+                    tts?.voice = male
                 }
             } catch (_: Exception) {}
         }
@@ -62,18 +62,18 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startNotification() {
-        val channelId = "acrux_bg_channel"
+        val channelId = "zuraiz_bg_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "ACRUX Service",
+                "ZURAIZ Service",
                 NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("ACRUX Online")
+            .setContentTitle("ZURAIZ Online")
             .setContentText("Listening for directives...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
@@ -123,6 +123,12 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun handleDirective(command: String) {
+        val lower = command.lowercase()
+        if (lower == "stop" || lower == "shut up" || lower == "quiet") {
+            tts?.stop()
+            return
+        }
+
         val handled = deviceController.executeDirective(command) { message ->
             speakOut(message)
         }
@@ -136,7 +142,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun speakOut(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "AcruxTTS")
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZuraizTTS")
     }
 
     override fun onDestroy() {
