@@ -3,15 +3,17 @@ package com.jarvis.assistant
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.jarvis.assistant.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,13 +28,68 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
         deviceController = DeviceController(this)
-        tvStatus = findViewById(R.id.tvStatus)
-        etCommand = findViewById(R.id.etCommand)
-        btnExecute = findViewById(R.id.btnExecute)
-        btnVoice = findViewById(R.id.btnVoice)
+
+        // Programmatic Layout - Zero XML Dependency
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0B0F19"))
+            setPadding(48, 80, 48, 48)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "A C R U X"
+            textSize = 28f
+            setTextColor(Color.parseColor("#00F0FF"))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 40)
+        }
+
+        tvStatus = TextView(this).apply {
+            text = "SYSTEM ONLINE - BACKGROUND READY"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#151D2A"))
+            setPadding(32, 32, 32, 32)
+            gravity = Gravity.CENTER
+        }
+
+        etCommand = EditText(this).apply {
+            hint = "Enter directive or speak..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#151D2A"))
+            setPadding(32, 32, 32, 32)
+        }
+
+        btnExecute = Button(this).apply {
+            text = "EXECUTE DIRECTIVE"
+            setBackgroundColor(Color.parseColor("#1E293B"))
+            setTextColor(Color.WHITE)
+        }
+
+        btnVoice = Button(this).apply {
+            text = "INITIATE BACKGROUND VOICE"
+            setBackgroundColor(Color.parseColor("#00F0FF"))
+            setTextColor(Color.BLACK)
+        }
+
+        val spacer1 = LinearLayout(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
+        val spacer2 = LinearLayout(this).apply { layoutParams = LinearLayout.LayoutParams(1, 24) }
+        val spacer3 = LinearLayout(this).apply { layoutParams = LinearLayout.LayoutParams(1, 24) }
+
+        rootLayout.addView(tvTitle)
+        rootLayout.addView(tvStatus)
+        rootLayout.addView(spacer1)
+        rootLayout.addView(etCommand)
+        rootLayout.addView(spacer2)
+        rootLayout.addView(btnExecute)
+        rootLayout.addView(spacer3)
+        rootLayout.addView(btnVoice)
+
+        setContentView(rootLayout)
 
         checkAndRequestPermissions()
 
@@ -46,7 +103,7 @@ class MainActivity : AppCompatActivity() {
 
         btnVoice.setOnClickListener {
             startBackgroundService()
-            tvStatus.text = "ACRUX Listening active"
+            tvStatus.text = "ACRUX Background Service Active"
         }
     }
 
