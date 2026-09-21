@@ -1,233 +1,205 @@
 package com.jarvis.assistant
 
-import android.app.PendingIntent
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
-import android.media.AudioManager
-import android.net.Uri
-import android.os.BatteryManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.TotalCaptureResult
+import android.media.ImageReader
+import android.media.RingtoneManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import java.io.File
+import java.io.FileOutputStream
 
 class DeviceController(private val context: Context) {
 
-    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    companion object {
+        private const val TAG = "DeviceController"
+        private const val CHANNEL_ID = "zuraiz_security_channel"
+        private const val NOTIFICATION_ID = 9046
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
+    var isAwaitingAuthChallenge: Boolean = false
 
-    // --- App Launch via PendingIntent ---
-    fun openApp(appName: String): String {
-        val clean = appName.lowercase().trim().replace(" ", "")
-        val pm = context.packageManager
+    init {
+        createNotificationChannel()
+    }
 
-        val packageMap = mapOf(
-            "whatsapp" to "com.whatsapp",
-            "youtube" to "com.google.android.youtube",
-            "chrome" to "com.android.chrome",
-            "instagram" to "com.instagram.android",
-            "settings" to "com.android.settings",
-            "camera" to "com.android.camera",
-            "gallery" to "com.google.android.apps.photos",
-            "maps" to "com.google.android.apps.maps",
-            "playstore" to "com.android.vending",
-            "telegram" to "org.telegram.messenger"
-        )
+    /**
+     * Entry point for lock-screen unlock requests.
+     * Sets the challenge state and instructs ZURAIZ to demand identification.
+     */
+    fun handleUnlockRequest(speakCallback: (String) -> Unit) {
+        isAwaitingAuthChallenge = true
+        speakCallback("Identify.")
+    }
 
-        var targetPackage = packageMap[clean]
+    /**
+     * Evaluates the vocal challenge response.
+     * Grants access for 'Stand down, it's me', or initiates intruder capture protocol.
+     */
+    fun processAuthResponse(spokenText: String, speakCallback: (String) -> Unit) {
+        val cleanInput = spokenText.trim().lowercase()
 
-        if (targetPackage == null) {
-            val launcherIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            val apps = pm.queryIntentActivities(launcherIntent, 0)
-            val match = apps.firstOrNull {
-                val label = it.loadLabel(pm).toString().lowercase().replace(" ", "")
-                label.contains(clean) || clean.contains(label)
-            }
-            targetPackage = match?.activityInfo?.packageName
-        }
+        if (cleanInput.contains("stand down it's me") || cleanInput.contains("stand down its me")) {
+            isAwaitingAuthChallenge = false
+            speakCallback("Access granted. Standing down, Sir YUNO.")
 
-        if (targetPackage == null) {
-            return "Could not find app $appName."
-        }
-
-        val launchIntent = pm.getLaunchIntentForPackage(targetPackage) ?: return "Unable to launch $appName."
-        launchIntent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or
-            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-            Intent.FLAG_ACTIVITY_SINGLE_TOP
-        )
-
-        return try {
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            pendingIntent.send()
-            "Opening $appName."
-        } catch (_: Exception) {
-            try {
-                context.startActivity(launchIntent)
-                "Opening $appName."
-            } catch (e: Exception) {
-                "Failed to open $appName: ${e.message}"
+            // Execute Accessibility auto-swipe and PIN taps (9046)
+            mainHandler.postDelayed({
+                JarvisAccessibilityService.instance?.performAutoUnlock()
+            }, 600)
+        } else {
+            // Breach detected: unauthorized voice input
+            isAwaitingAuthChallenge = false
+            speakCallback("Access denied. Intruder protocol engaged.")
+            captureIntruderSilent { capturedPhotoPath ->
+                notifyIntruderBreach(capturedPhotoPath)
             }
         }
     }
 
-    // --- Device Lock Fix for Realme UI ---
-    fun lockDevice(): String {
-        return try {
-            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-            val component = ComponentName(context, AdminReceiver::class.java)
-            if (dpm.isAdminActive(component)) {
-                mainHandler.post {
-                    dpm.lockNow()
+    /**
+     * Captures a silent picture using the front camera via Camera2 without UI or shutter sound.
+     */
+    private fun captureIntruderSilent(onPhotoCaptured: (String) -> Unit) {
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return
+
+        try {
+            var frontCameraId: String? = null
+            for (id in cameraManager.cameraIdList) {
+                val characteristics = cameraManager.getCameraCharacteristics(id)
+                val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+                if (facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                    frontCameraId = id
+                    break
                 }
-                "Device locked."
-            } else {
-                "Admin permission required to lock device."
             }
+
+            if (frontCameraId == null) {
+                Log.e(TAG, "Front camera hardware not detected.")
+                return
+            }
+
+            val imageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2)
+            val intruderFile = File(context.filesDir, "intruder_${System.currentTimeMillis()}.jpg")
+
+            imageReader.setOnImageAvailableListener({ reader ->
+                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val buffer = image.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                image.close()
+
+                try {
+                    FileOutputStream(intruderFile).use { fos ->
+                        fos.write(bytes)
+                    }
+                    Log.d(TAG, "Intruder snapshot saved at: ${intruderFile.absolutePath}")
+                    mainHandler.post {
+                        onPhotoCaptured(intruderFile.absolutePath)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error writing intruder photo bytes: ${e.message}")
+                }
+            }, mainHandler)
+
+            cameraManager.openCamera(frontCameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    try {
+                        val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                            addTarget(imageReader.surface)
+                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                            set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+                        }
+
+                        camera.createCaptureSession(
+                            listOf(imageReader.surface),
+                            object : CameraCaptureSession.StateCallback() {
+                                override fun onConfigured(session: CameraCaptureSession) {
+                                    session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
+                                        override fun onCaptureCompleted(
+                                            session: CameraCaptureSession,
+                                            request: CaptureRequest,
+                                            result: TotalCaptureResult
+                                        ) {
+                                            super.onCaptureCompleted(session, request, result)
+                                            camera.close()
+                                        }
+                                    }, mainHandler)
+                                }
+
+                                override fun onConfigureFailed(session: CameraCaptureSession) {
+                                    camera.close()
+                                }
+                            },
+                            mainHandler
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Camera capture request exception: ${e.message}")
+                        camera.close()
+                    }
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    camera.close()
+                }
+            }, mainHandler)
+
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Camera permission missing or revoked: ${e.message}")
         } catch (e: Exception) {
-            "Unable to lock device."
+            Log.e(TAG, "Exception during silent intruder capture: ${e.message}")
         }
     }
 
-    // --- Screen Wake ---
-    fun wakeDevice(): String {
-        return try {
-            val wakeLock = powerManager.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "ZURAIZ:WakeLock"
-            )
-            wakeLock.acquire(3000)
-            "Screen active."
-        } catch (e: Exception) {
-            "Unable to wake display."
-        }
+    /**
+     * Builds and posts an alert notification displaying the intruder photo.
+     */
+    private fun notifyIntruderBreach(photoPath: String) {
+        val bitmap = BitmapFactory.decodeFile(photoPath)
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentTitle("SECURITY ALERT: Breach Attempt")
+            .setContentText("Unauthorized voice attempt detected. Intruder captured.")
+            .setLargeIcon(bitmap)
+            .setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap).bigLargeIcon(null as? android.graphics.Bitmap))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    // --- Flashlight ---
-    fun setFlashlight(enable: Boolean): String {
-        return try {
-            val cameraId = cameraManager.cameraIdList[0]
-            cameraManager.setTorchMode(cameraId, enable)
-            if (enable) "Flashlight on." else "Flashlight off."
-        } catch (e: Exception) {
-            "Flashlight error."
-        }
-    }
-
-    // --- Calls ---
-    fun makeCall(phoneNumber: String): String {
-        return try {
-            val intent = Intent(Intent.ACTION_CALL).apply {
-                data = Uri.parse("tel:$phoneNumber")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Zuraiz Intruder Security",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Intruder security photo capture alerts"
             }
-            context.startActivity(intent)
-            "Calling $phoneNumber."
-        } catch (e: Exception) {
-            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                data = Uri.parse("tel:$phoneNumber")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(dialIntent)
-            "Opening dialer."
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(channel)
         }
-    }
-
-    // --- Audio Profiles ---
-    fun setRingerMode(mode: String): String {
-        return when (mode.lowercase()) {
-            "silent" -> {
-                audioManager.ringerMode = AudioManager.RINGER_MODE_SILENT
-                "Set to Silent."
-            }
-            "vibrate" -> {
-                audioManager.ringerMode = AudioManager.RINGER_MODE_VIBRATE
-                "Set to Vibrate."
-            }
-            else -> {
-                audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
-                "Set to Normal."
-            }
-        }
-    }
-
-    // --- Battery Telemetry ---
-    fun getBatteryTelemetry(): String {
-        val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val status = context.registerReceiver(null, ifilter)
-        val level = status?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = status?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val pct = if (level >= 0 && scale > 0) (level * 100 / scale) else 0
-        return "Battery is at $pct percent."
-    }
-
-    // --- Directives Parser ---
-    fun executeDirective(rawCommand: String, onResult: (String) -> Unit): Boolean {
-        val cmd = rawCommand.lowercase().trim()
-
-        // App Launch
-        if (cmd.startsWith("open ") || cmd.startsWith("launch ")) {
-            val target = cmd.removePrefix("open ").removePrefix("launch ").trim()
-            onResult(openApp(target))
-            return true
-        }
-
-        // Lock / Wake
-        if (cmd.contains("lock screen") || cmd.contains("lock device") || cmd.contains("lock phone")) {
-            onResult(lockDevice())
-            return true
-        }
-        if (cmd.contains("wake up") || cmd.contains("turn on screen") || cmd.contains("wake screen")) {
-            onResult(wakeDevice())
-            return true
-        }
-
-        // Flashlight
-        if (cmd.contains("flashlight") || cmd.contains("torch")) {
-            val state = !cmd.contains("off")
-            onResult(setFlashlight(state))
-            return true
-        }
-
-        // Call
-        if (cmd.startsWith("call ") || cmd.startsWith("dial ")) {
-            val target = cmd.removePrefix("call ").removePrefix("dial ").trim()
-            onResult(makeCall(target))
-            return true
-        }
-
-        // Audio Modes
-        if (cmd.contains("silent")) {
-            onResult(setRingerMode("silent"))
-            return true
-        }
-        if (cmd.contains("vibrate")) {
-            onResult(setRingerMode("vibrate"))
-            return true
-        }
-        if (cmd.contains("normal mode") || cmd.contains("unmute")) {
-            onResult(setRingerMode("normal"))
-            return true
-        }
-
-        // Battery
-        if (cmd.contains("battery")) {
-            onResult(getBatteryTelemetry())
-            return true
-        }
-
-        return false
     }
 }
