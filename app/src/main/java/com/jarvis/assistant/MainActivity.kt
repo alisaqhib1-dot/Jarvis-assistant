@@ -31,7 +31,6 @@ class MainActivity : AppCompatActivity() {
 
         deviceController = DeviceController(this)
 
-        // Programmatic Layout - Zero XML Dependency
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0B0F19"))
@@ -152,26 +151,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun executeDirective(command: String) {
         tvStatus.text = "Processing: $command"
-        val lower = command.lowercase()
-        val hardwareResult = when {
-            "flashlight on" in lower || "torch on" in lower -> deviceController.setFlashlight(true)
-            "flashlight off" in lower || "torch off" in lower -> deviceController.setFlashlight(false)
-            "silent" in lower -> deviceController.setRingerMode("silent")
-            "vibrate" in lower -> deviceController.setRingerMode("vibrate")
-            "ring" in lower || "normal mode" in lower -> deviceController.setRingerMode("normal")
-            "battery" in lower -> deviceController.getBatteryTelemetry()
-            "clean cache" in lower || "clear cache" in lower -> deviceController.cleanAppCache()
-            else -> null
+
+        val handled = deviceController.executeDirective(command) { result ->
+            tvStatus.text = result
         }
 
-        if (hardwareResult != null) {
-            tvStatus.text = hardwareResult
-            return
-        }
-
-        CoroutineScope(Dispatchers.Main).launch {
-            val reply = GroqClient.query(command)
-            tvStatus.text = reply
+        if (!handled) {
+            CoroutineScope(Dispatchers.Main).launch {
+                val reply = GroqClient.query(command)
+                tvStatus.text = reply
+            }
         }
     }
 }
