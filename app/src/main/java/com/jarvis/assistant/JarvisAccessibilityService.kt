@@ -4,14 +4,18 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.graphics.Path
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 
 class JarvisAccessibilityService : AccessibilityService() {
 
     companion object {
+        private const val TAG = "JarvisAccessibility"
         var instance: JarvisAccessibilityService? = null
             private set
     }
@@ -26,13 +30,29 @@ class JarvisAccessibilityService : AccessibilityService() {
         Pair(842.0f, 1325.9f)  // Key 6
     )
 
+    // State trackers for auto-typing and auto-sending
+    var pendingWhatsAppMessage: String? = null
+    var pendingInstagramMessage: String? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Reserved for in-app node inspections (WhatsApp/Instagram automation)
+        if (event == null || event.source == null) return
+
+        val packageName = event.packageName?.toString() ?: ""
+
+        // WhatsApp Automation
+        if (packageName == "com.whatsapp" && pendingWhatsAppMessage != null) {
+            handleWhatsAppAutomatedSend(rootInActiveWindow)
+        }
+
+        // Instagram Automation
+        if (packageName == "com.instagram.android" && pendingInstagramMessage != null) {
+            handleInstagramAutomatedSend(rootInActiveWindow)
+        }
     }
 
     override fun onInterrupt() {}
@@ -60,9 +80,6 @@ class JarvisAccessibilityService : AccessibilityService() {
         }, 200)
     }
 
-    /**
-     * Wakes the physical display using PowerManager flags.
-     */
     private fun wakeDeviceScreen() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         if (powerManager != null && !powerManager.isInteractive) {
@@ -76,13 +93,10 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
     }
 
-    /**
-     * Simulates an upward vertical flick to pull up the PIN entry pad.
-     */
     private fun dispatchSwipeUp(onSwipeFinished: () -> Unit) {
         val swipePath = Path().apply {
-            moveTo(540f, 1900f) // Start drag from bottom-center
-            lineTo(540f, 500f)  // End drag at upper-center
+            moveTo(540f, 1900f)
+            lineTo(540f, 500f)
         }
 
         val swipeStroke = GestureDescription.StrokeDescription(swipePath, 0, 250)
@@ -93,12 +107,13 @@ class JarvisAccessibilityService : AccessibilityService() {
                 super.onCompleted(gestureDescription)
                 onSwipeFinished()
             }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                super.onCancelled(gestureDescription)
+            }
         }, null)
     }
 
-    /**
-     * Recursively injects tap gestures at each digit coordinate with a delay.
-     */
     private fun dispatchPinSequence(index: Int, onComplete: (() -> Unit)?) {
         if (index >= pinCoordinates.size) {
             onComplete?.invoke()
@@ -120,6 +135,62 @@ class JarvisAccessibilityService : AccessibilityService() {
                     dispatchPinSequence(index + 1, onComplete)
                 }, 120)
             }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                super.onCancelled(gestureDescription)
+            }
         }, null)
+    }
+
+    /**
+     * Inspects active window tree for WhatsApp input box, pastes message, and clicks Send.
+     */
+    private fun handleWhatsAppAutomatedSend(rootNode: AccessibilityNodeInfo?) {
+        val textToSend = pendingWhatsAppMessage ?: return
+        if (rootNode == null) return
+
+        // Search for the message input field
+        val inputNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry")
+        if (inputNodes.isNotEmpty()) {
+            val inputField = inputNodes[0]
+            val arguments = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, textToSend)
+            }
+            inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+
+            // Short pause to allow Send button to register text input
+            mainHandler.postDelayed({
+                val sendNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
+                if (sendNodes.isNotEmpty()) {
+                    sendNodes[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    pendingWhatsAppMessage = null // Action complete, clear payload
+                }
+            }, 250)
+        }
+    }
+
+    /**
+     * Injects text into active Instagram direct chat input and triggers the Send button.
+     */
+    private fun handleInstagramAutomatedSend(rootNode: AccessibilityNodeInfo?) {
+        val textToSend = pendingInstagramMessage ?: return
+        if (rootNode == null) return
+
+        val inputNodes = rootNode.findAccessibilityNodeInfosByViewId("com.instagram.android:id/row_thread_composer_edittext")
+        if (inputNodes.isNotEmpty()) {
+            val inputField = inputNodes[0]
+            val arguments = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, textToSend)
+            }
+            inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+
+            mainHandler.postDelayed({
+                val sendNodes = rootNode.findAccessibilityNodeInfosByViewId("com.instagram.android:id/row_thread_composer_button_send")
+                if (sendNodes.isNotEmpty()) {
+                    sendNodes[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    pendingInstagramMessage = null
+                }
+            }, 250)
+        }
     }
 }
