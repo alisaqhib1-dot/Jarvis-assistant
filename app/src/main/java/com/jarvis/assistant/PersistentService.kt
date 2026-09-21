@@ -38,21 +38,32 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            tts?.setPitch(0.70f)       // Deep tone
-            tts?.setSpeechRate(0.95f)
 
-            // Select an explicit male voice engine profile
             try {
-                val availableVoices = tts?.voices
-                val male = availableVoices?.firstOrNull { v ->
-                    val name = v.name.lowercase()
-                    (name.contains("male") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iol")) &&
-                    !name.contains("female")
+                val availableVoices = tts?.voices ?: emptySet()
+                
+                // Target adult male voice models installed on Android TTS engines
+                val maleVoice = availableVoices.firstOrNull { voice ->
+                    val name = voice.name.lowercase()
+                    (name.contains("en-us-x-sfg") || 
+                     name.contains("en-us-x-iol") || 
+                     name.contains("en-us-x-tpc") || 
+                     name.contains("male")) && 
+                     !name.contains("female")
                 }
-                if (male != null) {
-                    tts?.voice = male
+
+                if (maleVoice != null) {
+                    tts?.voice = maleVoice
+                    tts?.setPitch(0.85f)
+                    tts?.setSpeechRate(0.92f)
+                } else {
+                    tts?.setPitch(0.80f)
+                    tts?.setSpeechRate(0.90f)
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                tts?.setPitch(0.80f)
+                tts?.setSpeechRate(0.90f)
+            }
         }
     }
 
@@ -62,19 +73,19 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startNotification() {
-        val channelId = "zuraiz_bg_channel"
+        val channelId = "zuraiz_service_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "ZURAIZ Service",
+                "ZURAIZ Background Engine",
                 NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("ZURAIZ Online")
-            .setContentText("Listening for directives...")
+            .setContentTitle("ZURAIZ Active")
+            .setContentText("Listening for commands...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .build()
@@ -88,7 +99,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
@@ -124,6 +135,8 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleDirective(command: String) {
         val lower = command.lowercase()
+
+        // Immediate stop trigger
         if (lower == "stop" || lower == "shut up" || lower == "quiet") {
             tts?.stop()
             return
@@ -142,7 +155,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun speakOut(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZuraizTTS")
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZuraizAudioID")
     }
 
     override fun onDestroy() {
