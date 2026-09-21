@@ -7,7 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -26,6 +28,8 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private lateinit var deviceController: DeviceController
     private val scope = CoroutineScope(Dispatchers.Main)
+    private val handler = Handler(Looper.getMainLooper())
+    private var isListening = false
 
     override fun onCreate() {
         super.onCreate()
@@ -40,35 +44,28 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             tts?.language = Locale.US
 
             try {
-                val availableVoices = tts?.voices ?: emptySet()
-                
-                // Target adult male voice models installed on Android TTS engines
-                val maleVoice = availableVoices.firstOrNull { voice ->
-                    val name = voice.name.lowercase()
-                    (name.contains("en-us-x-sfg") || 
-                     name.contains("en-us-x-iol") || 
-                     name.contains("en-us-x-tpc") || 
-                     name.contains("male")) && 
-                     !name.contains("female")
+                val voices = tts?.voices
+                if (!voices.isNullOrEmpty()) {
+                    // Look strictly for male voice tags
+                    val targetVoice = voices.firstOrNull { v ->
+                        val name = v.name.lowercase()
+                        (name.contains("male") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iol")) &&
+                                !name.contains("female")
+                    }
+                    if (targetVoice != null) {
+                        tts?.voice = targetVoice
+                    }
                 }
+            } catch (_: Exception) {}
 
-                if (maleVoice != null) {
-                    tts?.voice = maleVoice
-                    tts?.setPitch(0.85f)
-                    tts?.setSpeechRate(0.92f)
-                } else {
-                    tts?.setPitch(0.80f)
-                    tts?.setSpeechRate(0.90f)
-                }
-            } catch (_: Exception) {
-                tts?.setPitch(0.80f)
-                tts?.setSpeechRate(0.90f)
-            }
+            // Force a deep, commanding tone regardless of default engine profile
+            tts?.setPitch(0.70f)
+            tts?.setSpeechRate(0.90f)
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startListening()
+        restartListeningWithDelay(500)
         return START_STICKY
     }
 
@@ -85,8 +82,8 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("ZURAIZ Active")
-            .setContentText("Listening for commands...")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentText("Awaiting commands...")
+            .setSmallIcon(android.R.drawable.sym_def_app_icon)
             .setOngoing(true)
             .build()
 
@@ -99,46 +96,63 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
         speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onReadyForSpeech(params: Bundle?) {
+                isListening = true
+            }
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
+            override fun onEndOfSpeech() {
+                isListening = false
+            }
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
 
             override fun onError(error: Int) {
-                startListening()
+                isListening = false
+                // Prevent rapid loop crash by throttling retries
+                restartListeningWithDelay(1500)
             }
 
             override fun onResults(results: Bundle?) {
+                isListening = false
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val text = matches?.firstOrNull()?.trim()
                 if (!text.isNullOrEmpty()) {
                     handleDirective(text)
+                } else {
+                    restartListeningWithDelay(800)
                 }
-                startListening()
             }
         })
     }
 
-    private fun startListening() {
-        try {
-            recognizerIntent?.let { speechRecognizer?.startListening(it) }
-        } catch (_: Exception) {}
+    private fun restartListeningWithDelay(delayMs: Long) {
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({
+            try {
+                if (!isListening) {
+                    speechRecognizer?.cancel()
+                    recognizerIntent?.let { speechRecognizer?.startListening(it) }
+                }
+            } catch (_: Exception) {
+                handler.postDelayed({ restartListeningWithDelay(1000) }, 1000)
+            }
+        }, delayMs)
     }
 
     private fun handleDirective(command: String) {
         val lower = command.lowercase()
 
-        // Immediate stop trigger
         if (lower == "stop" || lower == "shut up" || lower == "quiet") {
             tts?.stop()
+            restartListeningWithDelay(1000)
             return
         }
 
@@ -156,10 +170,13 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
     private fun speakOut(text: String) {
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZuraizAudioID")
+        // Give TTS time to speak before turning the mic back on
+        restartListeningWithDelay(2500)
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
