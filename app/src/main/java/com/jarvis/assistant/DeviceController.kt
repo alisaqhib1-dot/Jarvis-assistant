@@ -28,14 +28,14 @@ class DeviceController(private val context: Context) {
         return try {
             val intent = Intent(Intent.ACTION_CALL).apply {
                 data = Uri.parse("tel:$phoneNumber")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             context.startActivity(intent)
             "Calling $phoneNumber."
         } catch (e: Exception) {
             val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                 data = Uri.parse("tel:$phoneNumber")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             context.startActivity(dialIntent)
             "Opening dialer for $phoneNumber."
@@ -46,7 +46,6 @@ class DeviceController(private val context: Context) {
         val clean = appName.lowercase().replace(" ", "").trim()
         val pm = context.packageManager
 
-        // Known direct package mappings for instant open
         val knownPackages = mapOf(
             "whatsapp" to "com.whatsapp",
             "youtube" to "com.google.android.youtube",
@@ -60,26 +59,29 @@ class DeviceController(private val context: Context) {
 
         val targetPkg = knownPackages[clean]
         if (targetPkg != null) {
-            val intent = pm.getLaunchIntentForPackage(targetPkg)
-            if (intent != null) {
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                context.startActivity(intent)
+            val launchIntent = pm.getLaunchIntentForPackage(targetPkg)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                context.startActivity(launchIntent)
                 return "Opening $appName."
             }
         }
 
-        // Dynamic package discovery fallback
         return try {
-            val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            val matched = packages.firstOrNull {
-                val label = pm.getApplicationLabel(it).toString().lowercase().replace(" ", "")
+            val launchableApps = pm.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+                0
+            )
+
+            val matched = launchableApps.firstOrNull {
+                val label = it.loadLabel(pm).toString().lowercase().replace(" ", "")
                 label.contains(clean) || clean.contains(label)
             }
 
             if (matched != null) {
-                val launchIntent = pm.getLaunchIntentForPackage(matched.packageName)
+                val launchIntent = pm.getLaunchIntentForPackage(matched.activityInfo.packageName)
                 if (launchIntent != null) {
-                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     context.startActivity(launchIntent)
                     "Opening $appName."
                 } else {
