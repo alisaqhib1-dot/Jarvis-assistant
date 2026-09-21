@@ -2,21 +2,23 @@ package com.jarvis.assistant
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.bluetooth.BluetoothAdapter
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.*
+import android.media.AudioManager
 import android.media.ImageReader
 import android.media.RingtoneManager
+import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.io.FileOutputStream
@@ -38,7 +40,6 @@ class DeviceController(private val context: Context) {
 
     /**
      * Entry point for lock-screen unlock requests.
-     * Sets the challenge state and instructs ZURAIZ to demand identification.
      */
     fun handleUnlockRequest(speakCallback: (String) -> Unit) {
         isAwaitingAuthChallenge = true
@@ -47,7 +48,6 @@ class DeviceController(private val context: Context) {
 
     /**
      * Evaluates the vocal challenge response.
-     * Grants access for 'Stand down, it's me', or initiates intruder capture protocol.
      */
     fun processAuthResponse(spokenText: String, speakCallback: (String) -> Unit) {
         val cleanInput = spokenText.trim().lowercase()
@@ -56,12 +56,10 @@ class DeviceController(private val context: Context) {
             isAwaitingAuthChallenge = false
             speakCallback("Access granted. Standing down, Sir YUNO.")
 
-            // Execute Accessibility auto-swipe and PIN taps (9046)
             mainHandler.postDelayed({
                 JarvisAccessibilityService.instance?.performAutoUnlock()
             }, 600)
         } else {
-            // Breach detected: unauthorized voice input
             isAwaitingAuthChallenge = false
             speakCallback("Access denied. Intruder protocol engaged.")
             captureIntruderSilent { capturedPhotoPath ->
@@ -71,8 +69,177 @@ class DeviceController(private val context: Context) {
     }
 
     /**
-     * Captures a silent picture using the front camera via Camera2 without UI or shutter sound.
+     * Offline Command Parser: Executes local commands without internet latency.
+     * Returns true if a command matched and executed locally.
      */
+    fun executeOfflineCommand(rawCommand: String, speakCallback: (String) -> Unit): Boolean {
+        val cmd = rawCommand.lowercase().trim()
+
+        return when {
+            // Hardware: Wi-Fi
+            cmd.contains("wifi on") || cmd.contains("turn on wifi") -> {
+                setWifiEnabled(true)
+                speakCallback("Wi-Fi activated, Boss.")
+                true
+            }
+            cmd.contains("wifi off") || cmd.contains("turn off wifi") -> {
+                setWifiEnabled(false)
+                speakCallback("Wi-Fi disabled, Boss.")
+                true
+            }
+
+            // Hardware: Bluetooth
+            cmd.contains("bluetooth on") || cmd.contains("turn on bluetooth") -> {
+                setBluetoothEnabled(true)
+                speakCallback("Bluetooth enabled, Sir YUNO.")
+                true
+            }
+            cmd.contains("bluetooth off") || cmd.contains("turn off bluetooth") -> {
+                setBluetoothEnabled(false)
+                speakCallback("Bluetooth turned off, Sir YUNO.")
+                true
+            }
+
+            // Hardware: Volume Controls
+            cmd.contains("volume max") || cmd.contains("max volume") -> {
+                adjustVolume(AudioManager.ADJUST_SAME, setMax = true)
+                speakCallback("Media volume maximized.")
+                true
+            }
+            cmd.contains("volume up") -> {
+                adjustVolume(AudioManager.ADJUST_RAISE)
+                speakCallback("Volume raised.")
+                true
+            }
+            cmd.contains("volume down") -> {
+                adjustVolume(AudioManager.ADJUST_LOWER)
+                speakCallback("Volume lowered.")
+                true
+            }
+            cmd.contains("mute") -> {
+                adjustVolume(AudioManager.ADJUST_MUTE)
+                speakCallback("Audio muted.")
+                true
+            }
+
+            // Media Playback Controls
+            cmd.contains("play music") || cmd.contains("resume music") -> {
+                dispatchMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY)
+                speakCallback("Playing media.")
+                true
+            }
+            cmd.contains("pause music") || cmd.contains("pause song") -> {
+                dispatchMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PAUSE)
+                speakCallback("Media paused.")
+                true
+            }
+            cmd.contains("next song") || cmd.contains("skip song") -> {
+                dispatchMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
+                speakCallback("Skipping to next track.")
+                true
+            }
+
+            // Automation: WhatsApp Direct Dispatch
+            cmd.startsWith("send whatsapp to") -> {
+                handleWhatsAppVoiceTrigger(cmd, speakCallback)
+                true
+            }
+
+            // Automation: Instagram DM Dispatch
+            cmd.startsWith("send instagram to") -> {
+                handleInstagramVoiceTrigger(cmd, speakCallback)
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private fun setWifiEnabled(enable: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            @Suppress("DEPRECATION")
+            wifiManager?.isWifiEnabled = enable
+        } else {
+            val panelIntent = Intent(Settings.Panel.ACTION_WIFI).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(panelIntent)
+        }
+    }
+
+    private fun setBluetoothEnabled(enable: Boolean) {
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+        try {
+            if (enable && !adapter.isEnabled) {
+                @Suppress("DEPRECATION")
+                adapter.enable()
+            } else if (!enable && adapter.isEnabled) {
+                @Suppress("DEPRECATION")
+                adapter.disable()
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Bluetooth permission missing: ${e.message}")
+        }
+    }
+
+    private fun adjustVolume(direction: Int, setMax: Boolean = false) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (setMax) {
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, AudioManager.FLAG_SHOW_UI)
+        } else {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+        }
+    }
+
+    private fun dispatchMediaKeyEvent(keyCode: Int) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+        val eventUp = KeyEvent(KeyEvent.ACTION_UP, keyCode)
+        audioManager.dispatchMediaKeyEvent(eventDown)
+        audioManager.dispatchMediaKeyEvent(eventUp)
+    }
+
+    private fun handleWhatsAppVoiceTrigger(cmd: String, speakCallback: (String) -> Unit) {
+        // Syntax expected: "send whatsapp to [contact] that [message]"
+        val delimiter = " that "
+        if (cmd.contains(delimiter)) {
+            val parts = cmd.split(delimiter)
+            val message = parts[1].trim()
+
+            JarvisAccessibilityService.instance?.pendingWhatsAppMessage = message
+            speakCallback("Opening WhatsApp and sending message, Boss.")
+
+            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.whatsapp")
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+            }
+        } else {
+            speakCallback("Please state the message using: send whatsapp to [name] that [message].")
+        }
+    }
+
+    private fun handleInstagramVoiceTrigger(cmd: String, speakCallback: (String) -> Unit) {
+        val delimiter = " that "
+        if (cmd.contains(delimiter)) {
+            val parts = cmd.split(delimiter)
+            val message = parts[1].trim()
+
+            JarvisAccessibilityService.instance?.pendingInstagramMessage = message
+            speakCallback("Routing to Instagram, Boss.")
+
+            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.instagram.android")
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+            }
+        } else {
+            speakCallback("Please state: send instagram to [name] that [message].")
+        }
+    }
+
     private fun captureIntruderSilent(onPhotoCaptured: (String) -> Unit) {
         val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return
 
@@ -106,7 +273,6 @@ class DeviceController(private val context: Context) {
                     FileOutputStream(intruderFile).use { fos ->
                         fos.write(bytes)
                     }
-                    Log.d(TAG, "Intruder snapshot saved at: ${intruderFile.absolutePath}")
                     mainHandler.post {
                         onPhotoCaptured(intruderFile.absolutePath)
                     }
@@ -168,9 +334,6 @@ class DeviceController(private val context: Context) {
         }
     }
 
-    /**
-     * Builds and posts an alert notification displaying the intruder photo.
-     */
     private fun notifyIntruderBreach(photoPath: String) {
         val bitmap = BitmapFactory.decodeFile(photoPath)
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
