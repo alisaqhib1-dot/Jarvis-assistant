@@ -3,164 +3,104 @@ package com.jarvis.assistant
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.view.Gravity
+import android.provider.Settings
 import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var tvStatus: TextView
-    private lateinit var etCommand: EditText
-    private lateinit var btnExecute: Button
-    private lateinit var btnVoice: Button
-    private lateinit var deviceController: DeviceController
+    private lateinit var statusTextView: TextView
+    private lateinit var btnToggleService: Button
+    private lateinit var btnAccessibilitySettings: Button
+
+    private val requiredPermissions = mutableListOf(
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.CAMERA
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }.toTypedArray()
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.entries.all { it.value }
+        if (allGranted) {
+            startAssistantService()
+        } else {
+            Toast.makeText(this, "Permissions required for ZURAIZ security and listening.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        deviceController = DeviceController(this)
-
-        val rootLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#0B0F19"))
-            setPadding(48, 80, 48, 48)
-            gravity = Gravity.CENTER_HORIZONTAL
+        // Programmatic lightweight UI to eliminate layout XML resource dependencies
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(50, 100, 50, 50)
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
         }
 
-        val tvTitle = TextView(this).apply {
-            text = "A C R U X"
-            textSize = 28f
-            setTextColor(Color.parseColor("#00F0FF"))
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 40)
+        statusTextView = TextView(this).apply {
+            text = "ZURAIZ CORE\nStatus: Initializing..."
+            textSize = 20f
+            textAlignment = TextView.TEXT_ALIGNMENT_CENTER
+            setPadding(0, 0, 0, 50)
         }
 
-        tvStatus = TextView(this).apply {
-            text = "SYSTEM ONLINE - BACKGROUND READY"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#151D2A"))
-            setPadding(32, 32, 32, 32)
-            gravity = Gravity.CENTER
-        }
-
-        etCommand = EditText(this).apply {
-            hint = "Enter directive or speak..."
-            setHintTextColor(Color.GRAY)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#151D2A"))
-            setPadding(32, 32, 32, 32)
-        }
-
-        btnExecute = Button(this).apply {
-            text = "EXECUTE DIRECTIVE"
-            setBackgroundColor(Color.parseColor("#1E293B"))
-            setTextColor(Color.WHITE)
-        }
-
-        btnVoice = Button(this).apply {
-            text = "INITIATE BACKGROUND VOICE"
-            setBackgroundColor(Color.parseColor("#00F0FF"))
-            setTextColor(Color.BLACK)
-        }
-
-        val spacer1 = LinearLayout(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
-        val spacer2 = LinearLayout(this).apply { layoutParams = LinearLayout.LayoutParams(1, 24) }
-        val spacer3 = LinearLayout(this).apply { layoutParams = LinearLayout.LayoutParams(1, 24) }
-
-        rootLayout.addView(tvTitle)
-        rootLayout.addView(tvStatus)
-        rootLayout.addView(spacer1)
-        rootLayout.addView(etCommand)
-        rootLayout.addView(spacer2)
-        rootLayout.addView(btnExecute)
-        rootLayout.addView(spacer3)
-        rootLayout.addView(btnVoice)
-
-        setContentView(rootLayout)
-
-        checkAndRequestPermissions()
-
-        btnExecute.setOnClickListener {
-            val text = etCommand.text.toString().trim()
-            if (text.isNotEmpty()) {
-                executeDirective(text)
-                etCommand.text.clear()
+        btnToggleService = Button(this).apply {
+            text = "Start Core Service"
+            setOnClickListener {
+                checkPermissionsAndStart()
             }
         }
 
-        btnVoice.setOnClickListener {
-            startBackgroundService()
-            tvStatus.text = "ACRUX Background Service Active"
+        btnAccessibilitySettings = Button(this).apply {
+            text = "Enable Accessibility"
+            setOnClickListener {
+                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                startActivity(intent)
+            }
         }
+
+        layout.addView(statusTextView)
+        layout.addView(btnToggleService)
+        layout.addView(btnAccessibilitySettings)
+
+        setContentView(layout)
+
+        checkPermissionsAndStart()
     }
 
-    private fun checkAndRequestPermissions() {
-        val permissions = mutableListOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.SEND_SMS
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        val needed = permissions.filter {
+    private fun checkPermissionsAndStart() {
+        val missingPermissions = requiredPermissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (needed.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, needed.toTypedArray(), 101)
+        if (missingPermissions.isEmpty()) {
+            startAssistantService()
         } else {
-            startBackgroundService()
+            permissionLauncher.launch(requiredPermissions)
         }
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 101) {
-            startBackgroundService()
-        }
-    }
-
-    private fun startBackgroundService() {
+    private fun startAssistantService() {
         val serviceIntent = Intent(this, PersistentService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
             startService(serviceIntent)
         }
-    }
-
-    private fun executeDirective(command: String) {
-        tvStatus.text = "Processing: $command"
-
-        val handled = deviceController.executeDirective(command) { result ->
-            tvStatus.text = result
-        }
-
-        if (!handled) {
-            CoroutineScope(Dispatchers.Main).launch {
-                val reply = GroqClient.query(command)
-                tvStatus.text = reply
-            }
-        }
+        statusTextView.text = "ZURAIZ CORE\nStatus: Online & Guarding"
+        btnToggleService.text = "Service Running"
     }
 }
