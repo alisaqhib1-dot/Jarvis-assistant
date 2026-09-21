@@ -11,7 +11,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Device Automation Controls -->
+    <!-- App Query & Hardware Automation Controls -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
@@ -27,7 +28,6 @@
         android:theme="@style/Theme.AppCompat.NoActionBar"
         tools:targetApi="34">
 
-        <!-- Main UI Launcher Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -37,14 +37,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Continuous Background Listening Service -->
         <service
             android:name=".PersistentService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- Deep Device Automation Accessibility Service -->
         <service
             android:name=".JarvisAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
