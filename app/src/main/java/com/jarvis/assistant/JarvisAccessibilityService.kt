@@ -24,19 +24,19 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     // Calibrated Keypad Coordinates for PIN: 9 -> 0 -> 4 -> 6
     private val pinCoordinates = listOf(
-        Pair(799.5f, 1606.1f), // Key 9
-        Pair(557.7f, 1836.5f), // Key 0
-        Pair(264.7f, 1391.9f), // Key 4
-        Pair(842.0f, 1325.9f)  // Key 6
+        Pair(799.5f, 1606.1f), // Digit 9
+        Pair(557.7f, 1836.5f), // Digit 0
+        Pair(264.7f, 1391.9f), // Digit 4
+        Pair(842.0f, 1325.9f)  // Digit 6
     )
 
-    // State trackers for auto-typing and auto-sending
     var pendingWhatsAppMessage: String? = null
     var pendingInstagramMessage: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Log.d(TAG, "JarvisAccessibilityService connected and ready.")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -44,12 +44,10 @@ class JarvisAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: ""
 
-        // WhatsApp Automation
         if (packageName == "com.whatsapp" && pendingWhatsAppMessage != null) {
             handleWhatsAppAutomatedSend(rootInActiveWindow)
         }
 
-        // Instagram Automation
         if (packageName == "com.instagram.android" && pendingInstagramMessage != null) {
             handleInstagramAutomatedSend(rootInActiveWindow)
         }
@@ -63,59 +61,71 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Wakes the screen, performs an upward drag to open the keypad,
-     * and sequentially taps the PIN coordinates.
+     * Wakes the display, performs an upward drag to open the keypad,
+     * waits for the keypad animation, and enters 9046.
      */
     fun performAutoUnlock(onComplete: (() -> Unit)? = null) {
         wakeDeviceScreen()
 
-        // Give the screen display 200ms to power on before swiping
+        // Wait 400ms for the display to power on and settle
         mainHandler.postDelayed({
             dispatchSwipeUp {
-                // Wait 350ms for lockscreen transition and keypad render
+                // Wait 600ms for the keypad transition to fully appear on screen
                 mainHandler.postDelayed({
                     dispatchPinSequence(0, onComplete)
-                }, 350)
+                }, 600)
             }
-        }, 200)
+        }, 400)
     }
 
+    /**
+     * Reliable screen wake for modern Android displays.
+     */
     private fun wakeDeviceScreen() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-        if (powerManager != null && !powerManager.isInteractive) {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        if (!powerManager.isInteractive) {
             val wakeLock = powerManager.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
                         PowerManager.ACQUIRE_CAUSES_WAKEUP or
                         PowerManager.ON_AFTER_RELEASE,
-                "Zuraiz:UnlockWakeLock"
+                "Zuraiz:ScreenWake"
             )
-            wakeLock.acquire(3000)
+            wakeLock.acquire(4000)
         }
     }
 
+    /**
+     * Executes a vertical swipe starting above the bottom navigation area (1600f) up to 350f.
+     */
     private fun dispatchSwipeUp(onSwipeFinished: () -> Unit) {
         val swipePath = Path().apply {
-            moveTo(540f, 1900f)
-            lineTo(540f, 500f)
+            moveTo(540f, 1600f)
+            lineTo(540f, 350f)
         }
 
-        val swipeStroke = GestureDescription.StrokeDescription(swipePath, 0, 250)
+        val swipeStroke = GestureDescription.StrokeDescription(swipePath, 0, 320)
         val gesture = GestureDescription.Builder().addStroke(swipeStroke).build()
 
         dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
+                Log.d(TAG, "Swipe up completed successfully.")
                 onSwipeFinished()
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 super.onCancelled(gestureDescription)
+                Log.e(TAG, "Swipe up was cancelled by system.")
             }
         }, null)
     }
 
+    /**
+     * Sequentially taps the calibrated 9-0-4-6 digits.
+     */
     private fun dispatchPinSequence(index: Int, onComplete: (() -> Unit)?) {
         if (index >= pinCoordinates.size) {
+            Log.d(TAG, "PIN entry complete.")
             onComplete?.invoke()
             return
         }
@@ -125,31 +135,30 @@ class JarvisAccessibilityService : AccessibilityService() {
             moveTo(targetCoord.first, targetCoord.second)
         }
 
-        val tapStroke = GestureDescription.StrokeDescription(tapPath, 0, 50)
+        // 70ms tap duration ensures the touch listener catches it
+        val tapStroke = GestureDescription.StrokeDescription(tapPath, 0, 70)
         val tapGesture = GestureDescription.Builder().addStroke(tapStroke).build()
 
         dispatchGesture(tapGesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
+                // 150ms delay between numbers gives the keypad time to register each digit
                 mainHandler.postDelayed({
                     dispatchPinSequence(index + 1, onComplete)
-                }, 120)
+                }, 150)
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 super.onCancelled(gestureDescription)
+                Log.e(TAG, "Tap cancelled at index $index")
             }
         }, null)
     }
 
-    /**
-     * Inspects active window tree for WhatsApp input box, pastes message, and clicks Send.
-     */
     private fun handleWhatsAppAutomatedSend(rootNode: AccessibilityNodeInfo?) {
         val textToSend = pendingWhatsAppMessage ?: return
         if (rootNode == null) return
 
-        // Search for the message input field
         val inputNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry")
         if (inputNodes.isNotEmpty()) {
             val inputField = inputNodes[0]
@@ -158,20 +167,16 @@ class JarvisAccessibilityService : AccessibilityService() {
             }
             inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
 
-            // Short pause to allow Send button to register text input
             mainHandler.postDelayed({
                 val sendNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
                 if (sendNodes.isNotEmpty()) {
                     sendNodes[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    pendingWhatsAppMessage = null // Action complete, clear payload
+                    pendingWhatsAppMessage = null
                 }
             }, 250)
         }
     }
 
-    /**
-     * Injects text into active Instagram direct chat input and triggers the Send button.
-     */
     private fun handleInstagramAutomatedSend(rootNode: AccessibilityNodeInfo?) {
         val textToSend = pendingInstagramMessage ?: return
         if (rootNode == null) return
