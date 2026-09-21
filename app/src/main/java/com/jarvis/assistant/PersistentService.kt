@@ -29,12 +29,12 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         private const val TAG = "PersistentService"
         private const val CHANNEL_ID = "zuraiz_persistent_channel"
         private const val NOTIFICATION_ID = 1001
-        
-        // Amplitude threshold for double-clap acoustic peak detection
-        private const val CLAP_AMPLITUDE_THRESHOLD = 18000
+
+        // Strict peak threshold to isolate real claps from voice frequencies
+        private const val CLAP_PEAK_THRESHOLD = 26000
     }
 
-    private lateinit var speechRecognizer: SpeechRecognizer
+    private var speechRecognizer: SpeechRecognizer? = null
     private lateinit var speechIntent: Intent
     private var textToSpeech: TextToSpeech? = null
     private lateinit var deviceController: DeviceController
@@ -43,7 +43,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     private var isListeningActive = false
     private var isStandbyFrozen = false
 
-    // Clap detection fields
+    // Acoustic clap analyzer
     private var clapAudioRecord: AudioRecord? = null
     private var isClapDetectorRunning = false
     private var lastClapTime: Long = 0
@@ -57,11 +57,13 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         startForeground(NOTIFICATION_ID, buildForegroundNotification("ZURAIZ Online — Listening"))
 
         initSpeechRecognizer()
-        startClapDetectorThread()
+        startListeningLoop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startListeningLoop()
+        if (!isStandbyFrozen) {
+            startListeningLoop()
+        }
         return START_STICKY
     }
 
@@ -70,7 +72,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             textToSpeech?.language = Locale.US
-            textToSpeech?.setPitch(0.9f) // Authoritative tone
+            textToSpeech?.setPitch(0.9f)
             textToSpeech?.setSpeechRate(1.0f)
         }
     }
@@ -80,63 +82,70 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun initSpeechRecognizer() {
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        mainHandler.post {
+            try {
+                speechRecognizer?.destroy()
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                    setRecognitionListener(object : RecognitionListener {
+                        override fun onReadyForSpeech(params: Bundle?) {
+                            isListeningActive = true
+                        }
+
+                        override fun onBeginningOfSpeech() {}
+
+                        override fun onRmsChanged(rmsdB: Float) {}
+
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+
+                        override fun onEndOfSpeech() {
+                            isListeningActive = false
+                        }
+
+                        override fun onError(error: Int) {
+                            isListeningActive = false
+                            restartListeningIfNeeded()
+                        }
+
+                        override fun onResults(results: Bundle?) {
+                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            if (!matches.isNullOrEmpty()) {
+                                handleVoiceCommand(matches[0])
+                            }
+                            restartListeningIfNeeded()
+                        }
+
+                        override fun onPartialResults(partialResults: Bundle?) {
+                            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            if (!matches.isNullOrEmpty()) {
+                                val spoken = matches[0].lowercase().trim()
+                                if (spoken.contains("stop") || spoken.contains("quiet")) {
+                                    textToSpeech?.stop()
+                                }
+                            }
+                        }
+
+                        override fun onEvent(eventType: Int, params: Bundle?) {}
+                    })
+                }
+
+                speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing speech recognizer: ${e.message}")
+            }
         }
-
-        speechRecognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                isListeningActive = true
-            }
-
-            override fun onBeginningOfSpeech() {}
-
-            override fun onRmsChanged(rmsdB: Float) {}
-
-            override fun onBufferReceived(buffer: ByteArray?) {}
-
-            override fun onEndOfSpeech() {
-                isListeningActive = false
-            }
-
-            override fun onError(error: Int) {
-                isListeningActive = false
-                restartListeningIfNeeded()
-            }
-
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    handleVoiceCommand(matches[0])
-                }
-                restartListeningIfNeeded()
-            }
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    val spoken = matches[0].lowercase().trim()
-                    // Instant speech cut-off
-                    if (spoken.contains("stop") || spoken.contains("quiet")) {
-                        textToSpeech?.stop()
-                    }
-                }
-            }
-
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
     }
 
     /**
-     * Central routing engine for incoming voice commands and state triggers.
+     * Central routing engine for all voice input.
      */
     private fun handleVoiceCommand(rawInput: String) {
         val command = rawInput.trim().lowercase()
-        Log.d(TAG, "Voice input registered: $command")
+        Log.d(TAG, "Voice received: $command")
 
         // 1. Instant speech cancellation
         if (command == "stop" || command == "quiet") {
@@ -144,25 +153,21 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // 2. Standby & Wake State Engine
+        // 2. Freeze / Standby trigger
         if (command.contains("freeze")) {
-            isStandbyFrozen = true
-            speechRecognizer.stopListening()
-            speak("Entering standby mode, Boss.")
-            updateNotification("ZURAIZ Frozen — Say 'ARISE' to wake")
+            enterFrozenStandby()
             return
         }
 
+        // 3. Wake trigger while in standby
         if (isStandbyFrozen) {
             if (command.contains("arise")) {
-                isStandbyFrozen = false
-                speak("Systems online. At your service, Sir YUNO.")
-                updateNotification("ZURAIZ Online — Listening")
+                exitFrozenStandby()
             }
             return
         }
 
-        // 3. Security Unlock & Challenge Gate
+        // 4. Security Challenge Response Gate
         if (deviceController.isAwaitingAuthChallenge) {
             deviceController.processAuthResponse(rawInput) { reply ->
                 speak(reply)
@@ -170,6 +175,7 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
+        // 5. Screen Unlock Request Gate
         if (command.contains("unlock") || command.contains("open phone")) {
             deviceController.handleUnlockRequest { prompt ->
                 speak(prompt)
@@ -177,26 +183,52 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // 4. Hardware Controls & App Automation Directives
-        val executedLocally = deviceController.executeOfflineCommand(command) { reply ->
+        // 6. Offline Hardware & App Automations
+        val handledLocally = deviceController.executeOfflineCommand(command) { reply ->
             speak(reply)
         }
+        if (handledLocally) return
+    }
 
-        if (executedLocally) {
-            return
+    /**
+     * Transitions system into Frozen Standby.
+     */
+    private fun enterFrozenStandby() {
+        isStandbyFrozen = true
+        isListeningActive = false
+        speak("Entering standby mode, Boss.")
+        updateNotification("ZURAIZ Frozen — Say 'ARISE' to wake")
+
+        // Free the microphone so the acoustic clap analyzer runs without conflicts
+        mainHandler.post {
+            try {
+                speechRecognizer?.stopListening()
+            } catch (_: Exception) {}
+            startClapDetectorThread()
         }
+    }
 
-        // Pass-through for cloud queries or general conversation
+    /**
+     * Exits Frozen Standby and restores the speech recognition engine.
+     */
+    private fun exitFrozenStandby() {
+        isStandbyFrozen = false
+        stopClapDetectorThread()
+        speak("Systems online. At your service, Sir YUNO.")
+        updateNotification("ZURAIZ Online — Listening")
+
+        mainHandler.postDelayed({
+            startListeningLoop()
+        }, 500)
     }
 
     private fun startListeningLoop() {
-        if (!isListeningActive && !isStandbyFrozen) {
-            mainHandler.post {
-                try {
-                    speechRecognizer.startListening(speechIntent)
-                } catch (e: Exception) {
-                    Log.e(TAG, "SpeechRecognizer start error: ${e.message}")
-                }
+        if (isStandbyFrozen) return
+        mainHandler.post {
+            try {
+                speechRecognizer?.startListening(speechIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start listening: ${e.message}")
             }
         }
     }
@@ -205,14 +237,16 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
         if (!isStandbyFrozen) {
             mainHandler.postDelayed({
                 startListeningLoop()
-            }, 300)
+            }, 350)
         }
     }
 
     /**
-     * Acoustic background analyzer for double-clap identification.
+     * Acoustic pulse reader with crest-factor analysis to isolate real claps from voices.
      */
     private fun startClapDetectorThread() {
+        if (isClapDetectorRunning) return
+
         val bufferSize = AudioRecord.getMinBufferSize(
             8000,
             AudioFormat.CHANNEL_IN_MONO,
@@ -237,21 +271,25 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                     val read = clapAudioRecord?.read(buffer, 0, bufferSize) ?: 0
                     if (read > 0) {
                         var maxPeak = 0
+                        var totalEnergy: Long = 0
+
                         for (i in 0 until read) {
                             val sample = abs(buffer[i].toInt())
                             if (sample > maxPeak) maxPeak = sample
+                            totalEnergy += sample
                         }
 
-                        if (maxPeak > CLAP_AMPLITUDE_THRESHOLD) {
+                        val avgEnergy = totalEnergy / read
+                        // Sharp crest verification: Real claps have an intense peak with very low average energy
+                        val isSharpTransient = maxPeak > CLAP_PEAK_THRESHOLD && (maxPeak / (avgEnergy + 1)) > 5
+
+                        if (isSharpTransient) {
                             val now = System.currentTimeMillis()
-                            // Double-clap registered within 500ms window
+                            // Requires two distinct sharp spikes between 150ms and 550ms apart
                             if (now - lastClapTime in 150..550) {
                                 mainHandler.post {
+                                    exitFrozenStandby()
                                     speak("Hey boss, it seems you are happy today.")
-                                    if (isStandbyFrozen) {
-                                        isStandbyFrozen = false
-                                        startListeningLoop()
-                                    }
                                 }
                                 lastClapTime = 0
                             } else {
@@ -261,11 +299,18 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
                     }
                 }
             }.start()
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Microphone permission not granted for clap detection: ${e.message}")
         } catch (e: Exception) {
-            Log.e(TAG, "Error initializing clap detector: ${e.message}")
+            Log.e(TAG, "Clap detector exception: ${e.message}")
         }
+    }
+
+    private fun stopClapDetectorThread() {
+        isClapDetectorRunning = false
+        try {
+            clapAudioRecord?.stop()
+            clapAudioRecord?.release()
+            clapAudioRecord = null
+        } catch (_: Exception) {}
     }
 
     private fun buildForegroundNotification(statusText: String): Notification {
@@ -297,10 +342,8 @@ class PersistentService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        isClapDetectorRunning = false
-        clapAudioRecord?.stop()
-        clapAudioRecord?.release()
-        speechRecognizer.destroy()
+        stopClapDetectorThread()
+        speechRecognizer?.destroy()
         textToSpeech?.stop()
         textToSpeech?.shutdown()
     }
