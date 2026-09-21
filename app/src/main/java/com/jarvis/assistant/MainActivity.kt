@@ -190,11 +190,15 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun startPersistentService() {
-        val serviceIntent = Intent(this, PersistentService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
+        try {
+            val serviceIntent = Intent(this, PersistentService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -202,7 +206,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val permissionsToRequest = mutableListOf<String>()
 
-            val permissions = arrayOf(
+            val permissions = mutableListOf(
                 Manifest.permission.RECORD_AUDIO,
                 Manifest.permission.READ_PHONE_STATE,
                 Manifest.permission.READ_CALL_LOG,
@@ -211,6 +215,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 Manifest.permission.READ_SMS,
                 Manifest.permission.SEND_SMS
             )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
 
             for (perm in permissions) {
                 if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
