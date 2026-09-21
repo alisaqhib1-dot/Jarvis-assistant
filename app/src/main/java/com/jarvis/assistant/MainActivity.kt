@@ -23,6 +23,11 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
@@ -36,6 +41,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var etInput: EditText
     private lateinit var btnSpeak: Button
     private lateinit var btnSend: Button
+
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -334,7 +341,16 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 JarvisAccessibilityService.instance?.unlockDevice()
             }
             else -> {
-                speak("Directive logged: $command")
+                // Route query through Groq LLM brain
+                tvStatus.text = "Consulting neural engine..."
+                tvStatus.setTextColor(Color.parseColor("#00E5FF"))
+
+                activityScope.launch {
+                    val aiResponse = GroqClient.query(command)
+                    withContext(Dispatchers.Main) {
+                        speak(aiResponse)
+                    }
+                }
             }
         }
     }
