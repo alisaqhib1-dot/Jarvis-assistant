@@ -2,6 +2,7 @@ package com.jarvis.assistant
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -18,8 +19,17 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Native frame layout to avoid resource compilation errors
         val frameLayout = FrameLayout(this)
         setContentView(frameLayout)
+
+        // Start the PersistentService immediately
+        val serviceIntent = Intent(this, PersistentService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
 
         deviceController = DeviceController(this)
 
