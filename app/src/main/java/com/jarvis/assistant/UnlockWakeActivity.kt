@@ -5,8 +5,6 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.WindowManager
 
 class UnlockWakeActivity : Activity() {
@@ -14,7 +12,6 @@ class UnlockWakeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Forces Realme display to wake up over lock screen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -30,10 +27,7 @@ class UnlockWakeActivity : Activity() {
             )
         }
 
-        // Wait half a second for display to light up, then trigger unlock
-        Handler(Looper.getMainLooper()).postDelayed({
-            JarvisAccessibilityService.instance?.performAutoUnlock()
-            finish()
-        }, 500)
+        // Finish immediately once screen is awakened and lock dismissed
+        finish()
     }
 }
