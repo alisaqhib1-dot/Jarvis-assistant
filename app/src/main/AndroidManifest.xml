@@ -2,27 +2,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.assistant">
 
-    <!-- Permissions -->
+    <!-- Essential System Permissions -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="ZURAIZ"
+        android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.NoActionBar">
+        android:theme="@style/Theme.JarvisAssistant">
 
-        <!-- Main Dashboard Activity -->
+        <!-- Main Launcher Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -32,25 +28,23 @@
             </intent-filter>
         </activity>
 
-        <!-- Screen Wake & Lock Dismiss Activity -->
+        <!-- Unlock & Wake Activity -->
         <activity
             android:name=".UnlockWakeActivity"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
+            android:showWhenLocked="true"
             android:exported="false" />
 
-        <!-- Background Voice Recognition Service -->
+        <!-- Floating HUD Overlay Service -->
         <service
-            android:name=".PersistentService"
+            android:name=".HudOverlayService"
             android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:exported="false" />
 
-        <!-- Automation & PIN Accessibility Service -->
+        <!-- Accessibility Command Service -->
         <service
-            android:name=".JarvisAccessibilityService"
+            android:name=".AssistantAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -60,6 +54,19 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Device Admin Receiver -->
+        <receiver
+            android:name=".DeviceAdminManager$JarvisDeviceAdminReceiver"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policies" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
