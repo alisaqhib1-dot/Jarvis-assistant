@@ -1,7 +1,6 @@
 package com.jarvis.assistant
 
 import android.os.Bundle
-import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
@@ -11,23 +10,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        
+        // Dynamic programmatic layout to guarantee 0 resource ID errors
+        val frameLayout = android.widget.FrameLayout(this)
+        setContentView(frameLayout)
 
         deviceController = DeviceController(this)
 
-        // Check and ask for overlay permission immediately on startup
         if (!deviceController.canDrawOverlays()) {
-            Toast.makeText(this, "Grant 'Display over other apps' to ZURAIZ", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Grant overlay permission to ZURAIZ", Toast.LENGTH_LONG).show()
             deviceController.requestOverlayPermission()
-        }
-
-        // Test buttons if present in your activity_main.xml
-        findViewById<Button?>(R.id.btnShowHud)?.setOnClickListener {
+        } else {
             deviceController.showHud("ZURAIZ ACTIVE")
-        }
-
-        findViewById<Button?>(R.id.btnHideHud)?.setOnClickListener {
-            deviceController.hideHud()
         }
     }
 }
