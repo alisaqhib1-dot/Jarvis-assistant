@@ -9,6 +9,7 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.TextView
 
@@ -25,7 +26,7 @@ class HudOverlayService : Service() {
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val inflater = LayoutInflater.from(this)
-        overlayView = inflater.inflate(R.layout.layout_hud_overlay, null)
+        overlayView = inflater.inflate(R.layout.layout_hud_overlay, null as ViewGroup?)
 
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -66,4 +67,3 @@ class HudOverlayService : Service() {
         }
     }
 }
-
